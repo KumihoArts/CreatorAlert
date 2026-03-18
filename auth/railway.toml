@@ -2,4 +2,4 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "gunicorn main:app --workers 2 --bind 0.0.0.0:$PORT"
+startCommand = "gunicorn main:app --workers 2 --bind 0.0.0.0:${PORT:-5000}"
