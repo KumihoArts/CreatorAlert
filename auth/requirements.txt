@@ -1,0 +1,6 @@
+flask
+gunicorn
+flask-cors
+asyncpg
+python-dotenv
+requests
