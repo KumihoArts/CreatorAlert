@@ -7,13 +7,13 @@ Never miss a Patreon post. CreatorAlert is a Discord bot that connects to your P
 ## How it works
 
 ### For supporters
-Connect your Patreon account once, then choose how you want to be notified — by DM, in a Discord channel, or both. CreatorAlert checks for new posts every 10 minutes and delivers them straight to you.
+Connect your Patreon account once and CreatorAlert will DM you whenever a creator you back on Patreon publishes something new. Notifications are private — only you see them.
 
 ### For creators
-Add the bot to your Discord server, connect your Patreon, and designate a channel for post announcements. Every time you publish on Patreon, CreatorAlert posts it automatically — no copy-pasting required.
+Add the bot to your Discord server, connect your Patreon, and designate a channel for post announcements. Every time you publish on Patreon, CreatorAlert posts it to that channel automatically. Optionally set a role to ping with each announcement.
 
 ### Better together
-The two modes work independently but complement each other naturally. If you're a creator with the bot in your server, your fans can use the exact same bot to set up their own personal notifications — for you, or for any other creator they support on Patreon. Your server becomes a natural place for your community to discover the bot, and each member can configure it exactly how they want.
+The two modes are completely independent and work alongside each other. If you're a creator with the bot in your server, your fans can use the same bot to get their own private DM notifications — for your content, or any other creator they support on Patreon. Your server becomes a natural place for your community to discover and set up the bot.
 
 ---
 
@@ -23,13 +23,11 @@ The two modes work independently but complement each other naturally. If you're 
 |---|---|
 | `/connect` | Link your Patreon account |
 | `/disconnect` | Unlink your account and stop all notifications |
-| `/status` | View your connection and notification settings |
-| `/notifications` | Set your delivery preference: DM, channel, or both |
-| `/setup` | [Creator] Set a channel for automatic Patreon post announcements |
+| `/status` | View your connection status and settings |
+| `/setup` | [Creator] Designate a channel for automatic post announcements (requires Manage Server) |
+| `/pingrole` | [Creator] Set a role to ping with each announcement (requires Manage Server) |
 | `/premium` | View or subscribe to CreatorAlert Premium |
 | `/customize` | [Premium] Set a custom embed colour and notification message |
-| `/channels` | [Premium] Manage multiple notification channels |
-| `/pingrole` | [Premium] Set a role to ping in channel notifications |
 | `/invite` | Get the bot invite link |
 | `/about` | About CreatorAlert |
 | `/help` | Show all available commands |
@@ -40,11 +38,9 @@ The two modes work independently but complement each other naturally. If you're 
 
 CreatorAlert Premium is available via Discord subscription. Premium members get:
 
-- Notifications every 3 minutes instead of 10
-- Multiple notification channels
-- Custom embed colour
-- Custom notification message
-- Role pings in channel notifications
+- Notifications checked every 3 minutes instead of 10
+- Custom embed colour for your DM notifications
+- Custom message prepended to every notification
 
 Use `/premium` in Discord to subscribe.
 
@@ -52,7 +48,7 @@ Use `/premium` in Discord to subscribe.
 
 ## Privacy & Legal
 
-CreatorAlert is an independent project and is not affiliated with Patreon or Discord. Your data is used only to deliver notifications and is never sold or shared. You can delete your data at any time with `/disconnect`.
+CreatorAlert is an independent project and is not affiliated with Patreon or Discord. Subscriber notifications are always private DMs — the bot never posts on behalf of a user without explicit server admin setup. Your data is used only to deliver notifications and is never sold or shared. You can delete your data at any time with `/disconnect`.
 
 Full details: [Terms of Service](legal/TERMS_OF_SERVICE.md) · [Privacy Notice](legal/PRIVACY_NOTICE.md)
 
