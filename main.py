@@ -2,19 +2,27 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 from dotenv import load_dotenv
+import logging
 import os
 
-from bot.db import init_db, get_user, delete_user, set_notification_mode, set_creator_channel
+from bot.db import init_db, get_user, delete_user, set_notification_mode, set_creator_channel, get_creator_channel
 from bot.scheduler import start_scheduler
 
 load_dotenv()
 
+# Suppress the misleading privileged intent warning — we intentionally don't use these
+logging.getLogger("discord.ext.commands.bot").setLevel(logging.ERROR)
+
 AUTH_BASE_URL = os.getenv("AUTH_BASE_URL", "https://auth-production-4018.up.railway.app")
 TEST_GUILD_ID = int(os.getenv("TEST_GUILD_ID", "0"))
 BOT_OWNER_ID = 244962442008854540
+BOT_VERSION = "1.0.0"
+GITHUB_URL = "https://github.com/KumihoArts/CreatorAlert"
+INVITE_PERMISSIONS = discord.Permissions(send_messages=True, embed_links=True, send_messages_in_threads=True)
 
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
+
 
 @bot.event
 async def on_ready():
@@ -52,11 +60,37 @@ async def disconnect(interaction: discord.Interaction):
             "❌ You don't have a Patreon account connected.", ephemeral=True
         )
         return
-    await delete_user(interaction.user.id)
+
+    # Confirmation step
+    view = ConfirmDisconnectView()
     await interaction.followup.send(
-        "✅ Your Patreon account has been disconnected. You will no longer receive notifications.",
+        "Are you sure you want to disconnect your Patreon account? "
+        "This will stop all notifications and remove your stored data.",
+        view=view,
         ephemeral=True
     )
+
+
+class ConfirmDisconnectView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=30)
+
+    @discord.ui.button(label="Yes, disconnect", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await delete_user(interaction.user.id)
+        self.stop()
+        await interaction.response.edit_message(
+            content="✅ Your Patreon account has been disconnected. You will no longer receive notifications.",
+            view=None
+        )
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.stop()
+        await interaction.response.edit_message(
+            content="Disconnect cancelled.",
+            view=None
+        )
 
 
 @bot.tree.command(name="status", description="Check your Patreon connection status")
@@ -138,7 +172,6 @@ async def notifications(
 async def setup(interaction: discord.Interaction, channel: discord.TextChannel):
     await interaction.response.defer(ephemeral=True)
 
-    # Must have a connected Patreon account
     user = await get_user(interaction.user.id)
     if not user:
         await interaction.followup.send(
@@ -147,7 +180,6 @@ async def setup(interaction: discord.Interaction, channel: discord.TextChannel):
         )
         return
 
-    # Check bot has permission to send in that channel
     perms = channel.permissions_for(interaction.guild.me)
     if not perms.send_messages or not perms.embed_links:
         await interaction.followup.send(
@@ -157,17 +189,69 @@ async def setup(interaction: discord.Interaction, channel: discord.TextChannel):
         )
         return
 
+    # Check if there's already a channel set for this creator in this guild
+    existing = await get_creator_channel(interaction.guild.id, user["patreon_user_id"])
+
     await set_creator_channel(interaction.guild.id, channel.id, user["patreon_user_id"])
+
+    if existing and existing != channel.id:
+        desc = (
+            f"Notification channel updated to {channel.mention}.\n\n"
+            f"Previously set to <#{existing}>."
+        )
+    else:
+        desc = (
+            f"New posts from your Patreon will be posted in {channel.mention}.\n\n"
+            "Make sure your notification mode includes **Channel** — use `/notifications` to check."
+        )
 
     embed = discord.Embed(
         title="✅ Creator channel set",
-        description=(
-            f"New posts from your Patreon will be posted in {channel.mention}.\n\n"
-            "Make sure your notification mode includes **Channel** — use `/notifications` to check."
-        ),
+        description=desc,
         color=discord.Color.green()
     )
     await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+@bot.tree.command(name="invite", description="Get the link to invite CreatorAlert to your server")
+async def invite(interaction: discord.Interaction):
+    invite_url = discord.utils.oauth_url(
+        bot.user.id,
+        permissions=INVITE_PERMISSIONS,
+        scopes=["bot", "applications.commands"]
+    )
+    embed = discord.Embed(
+        title="Invite CreatorAlert",
+        description=f"[Click here to add CreatorAlert to your server]({invite_url})\n\n"
+                    "Once added, use `/connect` to link your Patreon account and start receiving notifications.",
+        color=discord.Color.blurple()
+    )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@bot.tree.command(name="about", description="About CreatorAlert")
+async def about(interaction: discord.Interaction):
+    invite_url = discord.utils.oauth_url(
+        bot.user.id,
+        permissions=INVITE_PERMISSIONS,
+        scopes=["bot", "applications.commands"]
+    )
+    embed = discord.Embed(
+        title="CreatorAlert",
+        description="Never miss a Patreon post. CreatorAlert notifies you on Discord whenever a creator you support publishes something new.",
+        color=discord.Color.orange()
+    )
+    embed.add_field(name="Version", value=BOT_VERSION, inline=True)
+    embed.add_field(name="Polling interval", value="Every 10 minutes", inline=True)
+    embed.add_field(
+        name="Links",
+        value=f"[Invite]({invite_url}) · [GitHub]({GITHUB_URL}) · "
+              f"[Privacy Notice]({GITHUB_URL}/blob/main/legal/PRIVACY_NOTICE.md) · "
+              f"[Terms of Service]({GITHUB_URL}/blob/main/legal/TERMS_OF_SERVICE.md)",
+        inline=False
+    )
+    embed.set_footer(text="Built by KumihoArts · Not affiliated with Patreon or Discord")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 @bot.tree.command(name="testnotification", description="[Dev] Send a test notification to yourself")
@@ -231,6 +315,8 @@ async def help_cmd(interaction: discord.Interaction):
     embed.add_field(name="/status", value="Check your connection status and notification settings", inline=False)
     embed.add_field(name="/notifications", value="Choose how to receive notifications (DM, channel, or both)", inline=False)
     embed.add_field(name="/setup", value="[Creator] Set a channel in this server to receive your Patreon updates", inline=False)
+    embed.add_field(name="/invite", value="Get the link to invite CreatorAlert to your server", inline=False)
+    embed.add_field(name="/about", value="About CreatorAlert", inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
