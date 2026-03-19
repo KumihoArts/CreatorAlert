@@ -14,14 +14,27 @@ async def init_db():
     async with pool.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS patreon_users (
-                discord_id      BIGINT PRIMARY KEY,
-                patreon_user_id TEXT NOT NULL,
-                access_token    TEXT NOT NULL,
-                refresh_token   TEXT NOT NULL,
-                token_expires   TIMESTAMPTZ,
-                connected_at    TIMESTAMPTZ DEFAULT NOW()
+                discord_id          BIGINT PRIMARY KEY,
+                patreon_user_id     TEXT NOT NULL,
+                access_token        TEXT NOT NULL,
+                refresh_token       TEXT NOT NULL,
+                token_expires       TIMESTAMPTZ,
+                notification_mode   TEXT NOT NULL DEFAULT 'dm',
+                notification_channel_id BIGINT,
+                connected_at        TIMESTAMPTZ DEFAULT NOW()
             )
         """)
+
+        # Migrate existing table if columns are missing
+        await conn.execute("""
+            ALTER TABLE patreon_users
+            ADD COLUMN IF NOT EXISTS notification_mode TEXT NOT NULL DEFAULT 'dm'
+        """)
+        await conn.execute("""
+            ALTER TABLE patreon_users
+            ADD COLUMN IF NOT EXISTS notification_channel_id BIGINT
+        """)
+
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS creator_channels (
                 guild_id        BIGINT NOT NULL,
@@ -30,6 +43,7 @@ async def init_db():
                 PRIMARY KEY (guild_id, patreon_user_id)
             )
         """)
+
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS seen_posts (
                 post_id         TEXT PRIMARY KEY,
@@ -37,7 +51,9 @@ async def init_db():
                 seen_at         TIMESTAMPTZ DEFAULT NOW()
             )
         """)
+
     print("Database initialised.")
+
 
 async def get_user(discord_id: int) -> dict | None:
     pool = await get_pool()
@@ -47,6 +63,7 @@ async def get_user(discord_id: int) -> dict | None:
         )
         return dict(row) if row else None
 
+
 async def delete_user(discord_id: int):
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -54,11 +71,23 @@ async def delete_user(discord_id: int):
             "DELETE FROM patreon_users WHERE discord_id = $1", discord_id
         )
 
+
+async def set_notification_mode(discord_id: int, mode: str, channel_id: int | None = None):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE patreon_users
+            SET notification_mode = $2, notification_channel_id = $3
+            WHERE discord_id = $1
+        """, discord_id, mode, channel_id)
+
+
 async def get_all_users() -> list[dict]:
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch("SELECT * FROM patreon_users")
         return [dict(r) for r in rows]
+
 
 async def mark_post_seen(post_id: str, patreon_user_id: str):
     pool = await get_pool()
@@ -69,6 +98,7 @@ async def mark_post_seen(post_id: str, patreon_user_id: str):
             ON CONFLICT (post_id) DO NOTHING
         """, post_id, patreon_user_id)
 
+
 async def is_post_seen(post_id: str) -> bool:
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -76,6 +106,7 @@ async def is_post_seen(post_id: str) -> bool:
             "SELECT 1 FROM seen_posts WHERE post_id = $1", post_id
         )
         return row is not None
+
 
 async def set_creator_channel(guild_id: int, channel_id: int, patreon_user_id: str):
     pool = await get_pool()
@@ -86,6 +117,7 @@ async def set_creator_channel(guild_id: int, channel_id: int, patreon_user_id: s
             ON CONFLICT (guild_id, patreon_user_id) DO UPDATE
             SET channel_id = $2
         """, guild_id, channel_id, patreon_user_id)
+
 
 async def get_creator_channel(guild_id: int, patreon_user_id: str) -> int | None:
     pool = await get_pool()
