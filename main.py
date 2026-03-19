@@ -405,6 +405,41 @@ async def testnotification(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ DM failed: {e}", ephemeral=True)
 
 
+@bot.tree.command(name="servers", description="[Dev] List all servers the bot is in")
+async def servers(interaction: discord.Interaction):
+    if interaction.user.id != BOT_OWNER_ID:
+        await interaction.response.send_message("❌ This command is restricted.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    guilds = sorted(bot.guilds, key=lambda g: g.member_count, reverse=True)
+    total_members = sum(g.member_count for g in guilds)
+
+    lines = [f"**{g.name}** — {g.member_count:,} members (ID: `{g.id}`)" for g in guilds]
+
+    # Chunk into fields to stay within Discord's 1024 char field limit
+    chunks = []
+    current = ""
+    for line in lines:
+        if len(current) + len(line) + 1 > 1024:
+            chunks.append(current.strip())
+            current = line + "\n"
+        else:
+            current += line + "\n"
+    if current:
+        chunks.append(current.strip())
+
+    embed = discord.Embed(
+        title=f"Servers — {len(guilds)} total · {total_members:,} members",
+        color=discord.Color.blurple()
+    )
+    for i, chunk in enumerate(chunks):
+        embed.add_field(name="\u200b" if i > 0 else "Server list", value=chunk or "None", inline=False)
+
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+
 @bot.tree.command(name="help", description="Show help information")
 async def help_cmd(interaction: discord.Interaction):
     premium = _check_premium(interaction)
