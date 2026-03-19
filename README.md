@@ -26,7 +26,25 @@ The two modes work independently but complement each other naturally. If you're 
 | `/status` | View your connection and notification settings |
 | `/notifications` | Set your delivery preference: DM, channel, or both |
 | `/setup` | [Creator] Set a channel for automatic Patreon post announcements |
+| `/premium` | View or subscribe to CreatorAlert Premium |
+| `/customize` | [Premium] Set a custom embed colour and notification message |
+| `/channels` | [Premium] Manage multiple notification channels |
+| `/invite` | Get the bot invite link |
+| `/about` | About CreatorAlert |
 | `/help` | Show all available commands |
+
+---
+
+## Premium
+
+CreatorAlert Premium is available via Discord subscription. Premium members get:
+
+- Notifications every 3 minutes instead of 10
+- Multiple notification channels
+- Custom embed colour
+- Custom notification message
+
+Use `/premium` in Discord to subscribe.
 
 ---
 
@@ -35,6 +53,12 @@ The two modes work independently but complement each other naturally. If you're 
 CreatorAlert is an independent project and is not affiliated with Patreon or Discord. Your data is used only to deliver notifications and is never sold or shared. You can delete your data at any time with `/disconnect`.
 
 Full details: [Terms of Service](legal/TERMS_OF_SERVICE.md) · [Privacy Notice](legal/PRIVACY_NOTICE.md)
+
+---
+
+## Support
+
+Join the [KumihoArts support server](https://discord.gg/KVcu3HvHB3) for help, feedback, and updates.
 
 ---
 

@@ -15,6 +15,8 @@ When you use CreatorAlert, we collect and store the following data:
 | Patreon OAuth access & refresh tokens | Fetching your memberships and creator posts on your behalf |
 | Notification preference (DM, channel, or both) | Delivering notifications in your preferred way |
 | Notification channel ID | Sending notifications to your chosen channel (if applicable) |
+| Premium notification channels | Sending notifications to additional channels (Premium only) |
+| Custom embed colour and message | Personalising your notifications (Premium only) |
 | Seen post IDs | Preventing duplicate notifications |
 | Guild and channel IDs (creator mode) | Knowing where to post creator notifications |
 
@@ -55,7 +57,7 @@ If you are located in the EU/EEA, you have additional rights under the GDPR, inc
 CreatorAlert is not intended for use by anyone under the age of 13. We do not knowingly collect data from children under 13.
 
 ## 10. Changes
-This Privacy Notice may be updated from time to time. Significant changes will be communicated via the bot's support server or release notes. The "Last updated" date at the top reflects the most recent revision.
+This Privacy Notice may be updated from time to time. Significant changes will be communicated via the [KumihoArts support server](https://discord.gg/KVcu3HvHB3) or release notes. The "Last updated" date at the top reflects the most recent revision.
 
 ## 11. Contact
-For privacy-related questions, data deletion requests, or to exercise your GDPR rights, contact the bot owner via Discord: **Sly** (`244962442008854540`).
+For privacy-related questions, data deletion requests, or to exercise your GDPR rights, join the [KumihoArts support server](https://discord.gg/KVcu3HvHB3) or contact the bot owner via Discord: **Sly** (`244962442008854540`).

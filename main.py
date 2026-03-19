@@ -22,6 +22,7 @@ TEST_GUILD_ID = int(os.getenv("TEST_GUILD_ID", "0"))
 BOT_OWNER_ID = 244962442008854540
 BOT_VERSION = "1.0.0"
 GITHUB_URL = "https://github.com/KumihoArts/CreatorAlert"
+SUPPORT_SERVER = "https://discord.gg/KVcu3HvHB3"
 INVITE_PERMISSIONS = discord.Permissions(send_messages=True, embed_links=True, send_messages_in_threads=True)
 
 intents = discord.Intents.default()
@@ -309,7 +310,6 @@ async def customize(
         )
         return
 
-    # Validate hex colour
     if colour:
         colour = colour.strip()
         if not colour.startswith("#") or len(colour) != 7:
@@ -327,7 +327,6 @@ async def customize(
             )
             return
 
-    # Validate message length
     if message and len(message) > 200:
         await interaction.followup.send(
             "❌ Custom message must be 200 characters or fewer.",
@@ -422,6 +421,7 @@ async def invite(interaction: discord.Interaction):
                     "Once added, use `/connect` to link your Patreon account and start receiving notifications.",
         color=discord.Color.blurple()
     )
+    embed.set_footer(text=f"Need help? Join the support server: {SUPPORT_SERVER}")
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
@@ -441,7 +441,7 @@ async def about(interaction: discord.Interaction):
     embed.add_field(name="Polling interval", value="Every 3 min (Premium) / 10 min (Free)", inline=True)
     embed.add_field(
         name="Links",
-        value=f"[Invite]({invite_url}) · [GitHub]({GITHUB_URL}) · "
+        value=f"[Invite]({invite_url}) · [Support Server]({SUPPORT_SERVER}) · [GitHub]({GITHUB_URL}) · "
               f"[Privacy Notice]({GITHUB_URL}/blob/main/legal/PRIVACY_NOTICE.md) · "
               f"[Terms of Service]({GITHUB_URL}/blob/main/legal/TERMS_OF_SERVICE.md)",
         inline=False
@@ -518,6 +518,7 @@ async def help_cmd(interaction: discord.Interaction):
         embed.add_field(name="/channels", value="[Premium] Manage multiple notification channels", inline=False)
     embed.add_field(name="/invite", value="Get the link to invite CreatorAlert to your server", inline=False)
     embed.add_field(name="/about", value="About CreatorAlert", inline=False)
+    embed.set_footer(text=f"Need help? Join the support server: {SUPPORT_SERVER}")
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
