@@ -19,22 +19,12 @@ async def init_db():
                 access_token            TEXT NOT NULL,
                 refresh_token           TEXT NOT NULL,
                 token_expires           TIMESTAMPTZ,
-                notification_mode       TEXT NOT NULL DEFAULT 'dm',
-                notification_channel_id BIGINT,
                 embed_colour            TEXT,
                 custom_message          TEXT,
-                ping_role_id            BIGINT,
                 connected_at            TIMESTAMPTZ DEFAULT NOW()
             )
         """)
-        await conn.execute("""
-            ALTER TABLE patreon_users
-            ADD COLUMN IF NOT EXISTS notification_mode TEXT NOT NULL DEFAULT 'dm'
-        """)
-        await conn.execute("""
-            ALTER TABLE patreon_users
-            ADD COLUMN IF NOT EXISTS notification_channel_id BIGINT
-        """)
+        # Migrate: add new columns if missing, drop old subscriber channel columns
         await conn.execute("""
             ALTER TABLE patreon_users
             ADD COLUMN IF NOT EXISTS embed_colour TEXT
@@ -43,25 +33,19 @@ async def init_db():
             ALTER TABLE patreon_users
             ADD COLUMN IF NOT EXISTS custom_message TEXT
         """)
-        await conn.execute("""
-            ALTER TABLE patreon_users
-            ADD COLUMN IF NOT EXISTS ping_role_id BIGINT
-        """)
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS premium_channels (
-                id              SERIAL PRIMARY KEY,
-                discord_id      BIGINT NOT NULL,
-                channel_id      BIGINT NOT NULL,
-                UNIQUE (discord_id, channel_id)
-            )
-        """)
+        # creator_channels now includes ping_role_id
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS creator_channels (
                 guild_id        BIGINT NOT NULL,
                 channel_id      BIGINT NOT NULL,
                 patreon_user_id TEXT NOT NULL,
+                ping_role_id    BIGINT,
                 PRIMARY KEY (guild_id, patreon_user_id)
             )
+        """)
+        await conn.execute("""
+            ALTER TABLE creator_channels
+            ADD COLUMN IF NOT EXISTS ping_role_id BIGINT
         """)
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS seen_posts (
@@ -88,9 +72,6 @@ async def delete_user(discord_id: int):
         await conn.execute(
             "DELETE FROM patreon_users WHERE discord_id = $1", discord_id
         )
-        await conn.execute(
-            "DELETE FROM premium_channels WHERE discord_id = $1", discord_id
-        )
 
 
 async def update_tokens(discord_id: int, access_token: str, refresh_token: str):
@@ -103,16 +84,6 @@ async def update_tokens(discord_id: int, access_token: str, refresh_token: str):
         """, discord_id, access_token, refresh_token)
 
 
-async def set_notification_mode(discord_id: int, mode: str, channel_id: int | None = None):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        await conn.execute("""
-            UPDATE patreon_users
-            SET notification_mode = $2, notification_channel_id = $3
-            WHERE discord_id = $1
-        """, discord_id, mode, channel_id)
-
-
 async def set_premium_style(discord_id: int, embed_colour: str | None, custom_message: str | None):
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -121,44 +92,6 @@ async def set_premium_style(discord_id: int, embed_colour: str | None, custom_me
             SET embed_colour = $2, custom_message = $3
             WHERE discord_id = $1
         """, discord_id, embed_colour, custom_message)
-
-
-async def set_ping_role(discord_id: int, role_id: int | None):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        await conn.execute("""
-            UPDATE patreon_users
-            SET ping_role_id = $2
-            WHERE discord_id = $1
-        """, discord_id, role_id)
-
-
-async def add_premium_channel(discord_id: int, channel_id: int):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        await conn.execute("""
-            INSERT INTO premium_channels (discord_id, channel_id)
-            VALUES ($1, $2)
-            ON CONFLICT (discord_id, channel_id) DO NOTHING
-        """, discord_id, channel_id)
-
-
-async def remove_premium_channel(discord_id: int, channel_id: int):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        await conn.execute("""
-            DELETE FROM premium_channels
-            WHERE discord_id = $1 AND channel_id = $2
-        """, discord_id, channel_id)
-
-
-async def get_premium_channels(discord_id: int) -> list[int]:
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT channel_id FROM premium_channels WHERE discord_id = $1", discord_id
-        )
-        return [r["channel_id"] for r in rows]
 
 
 async def get_all_users() -> list[dict]:
@@ -206,3 +139,29 @@ async def get_creator_channel(guild_id: int, patreon_user_id: str) -> int | None
             guild_id, patreon_user_id
         )
         return row["channel_id"] if row else None
+
+
+async def get_creator_channels_for_patreon_user(patreon_user_id: str) -> list[tuple[int, int, int | None]]:
+    """
+    Returns all (guild_id, channel_id, ping_role_id) rows for a given Patreon user ID.
+    Used by the scheduler to find all creator channel destinations for a campaign owner.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT guild_id, channel_id, ping_role_id
+            FROM creator_channels
+            WHERE patreon_user_id = $1
+        """, patreon_user_id)
+        return [(r["guild_id"], r["channel_id"], r["ping_role_id"]) for r in rows]
+
+
+async def set_creator_ping_role(guild_id: int, patreon_user_id: str, role_id: int | None):
+    """Set the ping role for a creator's channel in a specific guild."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE creator_channels
+            SET ping_role_id = $3
+            WHERE guild_id = $1 AND patreon_user_id = $2
+        """, guild_id, patreon_user_id, role_id)

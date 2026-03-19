@@ -1,7 +1,10 @@
 import asyncio
 import discord
 
-from bot.db import get_all_users, is_post_seen, mark_post_seen, update_tokens, delete_user, get_premium_channels
+from bot.db import (
+    get_all_users, is_post_seen, mark_post_seen, update_tokens,
+    delete_user, get_creator_channels_for_patreon_user
+)
 from bot.patreon import get_memberships, get_recent_posts, refresh_access_token
 from bot.premium import PREMIUM_BYPASS_IDS
 
@@ -68,11 +71,8 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
             continue
 
         access_token = user["access_token"]
-        mode = user.get("notification_mode", "dm")
-        channel_id = user.get("notification_channel_id")
         embed_colour = user.get("embed_colour")
         custom_message = user.get("custom_message")
-        ping_role_id = user.get("ping_role_id")
 
         memberships = await get_memberships(access_token)
 
@@ -93,7 +93,7 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
                 await _notify_revoked(bot, discord_id)
                 continue
 
-        # Resolve embed colour
+        # Resolve embed colour (premium only)
         if embed_colour and user_is_premium:
             try:
                 colour = discord.Color(int(embed_colour.strip("#"), 16))
@@ -102,24 +102,7 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
         else:
             colour = discord.Color.orange()
 
-        # Build channel list
-        channels_to_notify = []
-        if mode in ("channel", "both") and channel_id:
-            channels_to_notify.append(channel_id)
-        if user_is_premium:
-            extra_channels = await get_premium_channels(discord_id)
-            for ch in extra_channels:
-                if ch not in channels_to_notify:
-                    channels_to_notify.append(ch)
-
-        # Build ping content
-        # Premium: ping a role if set, otherwise ping the user
-        # Free: always ping the user
-        if user_is_premium and ping_role_id:
-            channel_ping = f"<@&{ping_role_id}>"
-        else:
-            channel_ping = f"<@{discord_id}>"
-
+        # Custom message prefix (premium only)
         custom_prefix = custom_message if (custom_message and user_is_premium) else None
 
         for membership in memberships:
@@ -147,21 +130,37 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
                 if creator_url:
                     embed.set_footer(text=creator_url)
 
-                # DM — no role ping in DMs, just optional custom prefix
-                if mode in ("dm", "both"):
-                    try:
-                        discord_user = await bot.fetch_user(discord_id)
-                        await discord_user.send(content=custom_prefix, embed=embed)
-                    except Exception as e:
-                        print(f"[scheduler] Failed to DM {discord_id}: {e}")
+                # -----------------------------------------------------------
+                # SUBSCRIBER MODE — always DM only, never public
+                # -----------------------------------------------------------
+                try:
+                    discord_user = await bot.fetch_user(discord_id)
+                    await discord_user.send(content=custom_prefix, embed=embed)
+                except Exception as e:
+                    print(f"[scheduler] Failed to DM subscriber {discord_id}: {e}")
 
-                # Channel notifications
-                for ch_id in channels_to_notify:
+                # -----------------------------------------------------------
+                # CREATOR MODE — post to server channels set via /setup
+                # Only fires if this user IS the creator of this campaign
+                # and has set up a channel via /setup
+                # -----------------------------------------------------------
+                creator_channels = await get_creator_channels_for_patreon_user(
+                    user["patreon_user_id"]
+                )
+                for guild_id, ch_id, ping_role_id in creator_channels:
                     try:
                         channel = bot.get_channel(ch_id)
                         if channel is None:
                             channel = await bot.fetch_channel(ch_id)
-                        content = f"{custom_prefix + ' ' if custom_prefix else ''}{channel_ping}".strip()
+
+                        # Use ping role if set, otherwise no ping
+                        # (the creator chose what gets pinged via /pingrole)
+                        if ping_role_id:
+                            ping = f"<@&{ping_role_id}>"
+                        else:
+                            ping = None
+
+                        content = f"{custom_prefix + ' ' if custom_prefix else ''}{ping or ''}".strip() or None
                         await channel.send(content=content, embed=embed)
                     except Exception as e:
-                        print(f"[scheduler] Failed to send to channel {ch_id}: {e}")
+                        print(f"[scheduler] Failed to post to creator channel {ch_id} in guild {guild_id}: {e}")
