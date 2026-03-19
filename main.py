@@ -9,7 +9,7 @@ import os
 from bot.db import (
     init_db, get_user, delete_user, set_notification_mode, set_creator_channel,
     get_creator_channel, set_premium_style, add_premium_channel, remove_premium_channel,
-    get_premium_channels
+    get_premium_channels, set_ping_role
 )
 from bot.premium import is_premium, PREMIUM_SKU_ID
 from bot.scheduler import start_scheduler
@@ -36,6 +36,7 @@ DBL_COMMANDS = [
     {"name": "premium", "description": "View or subscribe to CreatorAlert Premium", "type": 1},
     {"name": "customize", "description": "[Premium] Set a custom embed colour and notification message", "type": 1},
     {"name": "channels", "description": "[Premium] Manage multiple notification channels", "type": 1},
+    {"name": "pingrole", "description": "[Premium] Set a role to ping in channel notifications instead of your username", "type": 1},
     {"name": "invite", "description": "Get the link to invite CreatorAlert to your server", "type": 1},
     {"name": "about", "description": "About CreatorAlert", "type": 1},
     {"name": "help", "description": "Show all available commands", "type": 1},
@@ -79,6 +80,27 @@ async def on_ready():
 
 def _check_premium(interaction: discord.Interaction) -> bool:
     return is_premium(interaction.user.id, list(interaction.entitlements))
+
+
+async def _check_channel_access(
+    interaction: discord.Interaction,
+    channel: discord.TextChannel
+) -> str | None:
+    """
+    Verify both the user and the bot can send messages in the channel.
+    Returns an error message string if denied, None if allowed.
+    """
+    # User must be able to send messages in the channel themselves
+    user_perms = channel.permissions_for(interaction.user)
+    if not user_perms.send_messages:
+        return f"❌ You don't have permission to send messages in {channel.mention}. You can only set notification channels you have access to."
+
+    # Bot must also be able to send and embed
+    bot_perms = channel.permissions_for(interaction.guild.me)
+    if not bot_perms.send_messages or not bot_perms.embed_links:
+        return f"❌ I don't have permission to send messages or embed links in {channel.mention}. Please update the channel permissions and try again."
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -172,8 +194,11 @@ async def status(interaction: discord.Interaction):
                     value=", ".join(f"<#{ch}>" for ch in extra_channels),
                     inline=False
                 )
+            ping_role_id = user.get("ping_role_id")
             custom_msg = user.get("custom_message")
             colour = user.get("embed_colour")
+            if ping_role_id:
+                embed.add_field(name="Ping role", value=f"<@&{ping_role_id}>", inline=True)
             if custom_msg:
                 embed.add_field(name="Custom message", value=custom_msg, inline=False)
             if colour:
@@ -209,6 +234,11 @@ async def notifications(
             "❌ Please specify a channel when using 'Channel only' or 'DM + Channel' mode.", ephemeral=True
         )
         return
+    if channel is not None:
+        error = await _check_channel_access(interaction, channel)
+        if error:
+            await interaction.followup.send(error, ephemeral=True)
+            return
     channel_id = channel.id if channel else None
     await set_notification_mode(interaction.user.id, mode.value, channel_id)
     mode_display = {"dm": "DM only", "channel": "Channel only", "both": "DM + Channel"}.get(mode.value, mode.value)
@@ -229,8 +259,10 @@ async def setup(interaction: discord.Interaction, channel: discord.TextChannel):
             "❌ You need to connect your Patreon account first. Use `/connect`.", ephemeral=True
         )
         return
-    perms = channel.permissions_for(interaction.guild.me)
-    if not perms.send_messages or not perms.embed_links:
+    # /setup already requires manage_guild permission, so the user check is implicitly covered.
+    # Just check bot permissions.
+    bot_perms = channel.permissions_for(interaction.guild.me)
+    if not bot_perms.send_messages or not bot_perms.embed_links:
         await interaction.followup.send(
             f"❌ I don't have permission to send messages or embed links in {channel.mention}. "
             "Please update the channel permissions and try again.", ephemeral=True
@@ -259,20 +291,22 @@ async def premium_status(interaction: discord.Interaction):
                 "You have an active CreatorAlert Premium subscription. "
                 "Your notifications are checked every 3 minutes.\n\n"
                 "Use `/customize` to set a custom embed colour or notification message.\n"
-                "Use `/channels` to manage multiple notification channels."
+                "Use `/channels` to manage multiple notification channels.\n"
+                "Use `/pingrole` to set a role to ping in channel notifications."
             ),
             color=discord.Color.gold()
         )
     else:
         embed = discord.Embed(
             title="CreatorAlert Premium",
-            description="Upgrade to Premium for faster notifications, custom styling, and multiple channels.\n\nSubscribe via the button below.",
+            description="Upgrade to Premium for faster notifications, custom styling, and more.\n\nSubscribe via the button below.",
             color=discord.Color.blurple()
         )
         embed.add_field(name="Faster polling", value="Every 3 min instead of 10", inline=True)
         embed.add_field(name="Multiple channels", value="Notify as many channels as you want", inline=True)
         embed.add_field(name="Custom colour", value="Set your embed colour", inline=True)
         embed.add_field(name="Custom message", value="Add a personal intro to notifications", inline=True)
+        embed.add_field(name="Role ping", value="Ping a role instead of your username", inline=True)
     await interaction.response.send_message(
         embed=embed,
         view=PremiumSubscribeView() if not premium else None,
@@ -342,6 +376,37 @@ async def customize(
     await interaction.followup.send("\n".join(lines), ephemeral=True)
 
 
+@bot.tree.command(name="pingrole", description="[Premium] Set a role to ping in channel notifications instead of your username")
+@app_commands.describe(role="The role to ping when a new post notification is sent (leave empty to clear)")
+async def pingrole(
+    interaction: discord.Interaction,
+    role: discord.Role = None
+):
+    await interaction.response.defer(ephemeral=True)
+    if not _check_premium(interaction):
+        await interaction.followup.send(
+            "❌ This feature requires **CreatorAlert Premium**. Use `/premium` to subscribe.", ephemeral=True
+        )
+        return
+    user = await get_user(interaction.user.id)
+    if not user:
+        await interaction.followup.send(
+            "❌ You need to connect your Patreon account first. Use `/connect`.", ephemeral=True
+        )
+        return
+    if role is None:
+        await set_ping_role(interaction.user.id, None)
+        await interaction.followup.send(
+            "✅ Ping role cleared. Channel notifications will ping you directly.", ephemeral=True
+        )
+        return
+    await set_ping_role(interaction.user.id, role.id)
+    await interaction.followup.send(
+        f"✅ Ping role set to {role.mention}. Channel notifications will ping this role instead of your username.",
+        ephemeral=True
+    )
+
+
 @bot.tree.command(name="channels", description="[Premium] Manage additional notification channels")
 @app_commands.describe(action="Add or remove a channel", channel="The channel to add or remove")
 @app_commands.choices(action=[
@@ -378,11 +443,9 @@ async def channels(
         await interaction.followup.send("❌ Please specify a channel.", ephemeral=True)
         return
     if action.value == "add":
-        perms = channel.permissions_for(interaction.guild.me)
-        if not perms.send_messages or not perms.embed_links:
-            await interaction.followup.send(
-                f"❌ I don't have permission to send messages in {channel.mention}.", ephemeral=True
-            )
+        error = await _check_channel_access(interaction, channel)
+        if error:
+            await interaction.followup.send(error, ephemeral=True)
             return
         await add_premium_channel(interaction.user.id, channel.id)
         await interaction.followup.send(f"✅ {channel.mention} added to your notification channels.", ephemeral=True)
@@ -490,6 +553,7 @@ async def help_cmd(interaction: discord.Interaction):
     if premium:
         embed.add_field(name="/customize", value="[Premium] Set a custom embed colour and notification message", inline=False)
         embed.add_field(name="/channels", value="[Premium] Manage multiple notification channels", inline=False)
+        embed.add_field(name="/pingrole", value="[Premium] Set a role to ping in channel notifications", inline=False)
     embed.add_field(name="/invite", value="Get the link to invite CreatorAlert to your server", inline=False)
     embed.add_field(name="/about", value="About CreatorAlert", inline=False)
     embed.set_footer(text=f"Need help? Join the support server: {SUPPORT_SERVER}")

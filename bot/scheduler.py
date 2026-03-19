@@ -3,7 +3,7 @@ import discord
 
 from bot.db import get_all_users, is_post_seen, mark_post_seen, update_tokens, delete_user, get_premium_channels
 from bot.patreon import get_memberships, get_recent_posts, refresh_access_token
-from bot.premium import is_premium, PREMIUM_SKU_ID
+from bot.premium import PREMIUM_BYPASS_IDS
 
 FREE_POLL_INTERVAL = 600    # 10 minutes
 PREMIUM_POLL_INTERVAL = 180 # 3 minutes
@@ -16,16 +16,12 @@ def start_scheduler(bot: discord.Client):
 async def _polling_loop(bot: discord.Client):
     await bot.wait_until_ready()
     print("Scheduler started.")
-
     cycle = 0
     while not bot.is_closed():
         try:
             await _check_for_new_posts(bot, premium_only=(cycle % 2 == 1))
         except Exception as e:
             print(f"[scheduler] Polling error: {e}")
-
-        # Run every 3 minutes; free users only checked every other cycle (6 min effective,
-        # close enough to 10 — adjust cycle modulo below to taste)
         cycle += 1
         await asyncio.sleep(PREMIUM_POLL_INTERVAL)
 
@@ -66,12 +62,8 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
 
     for user in users:
         discord_id = user["discord_id"]
+        user_is_premium = discord_id in PREMIUM_BYPASS_IDS
 
-        # Determine premium status from bypass IDs
-        # (entitlements not available in scheduler, bypass IDs cover owner/testers)
-        user_is_premium = discord_id in __import__("bot.premium", fromlist=["PREMIUM_BYPASS_IDS"]).PREMIUM_BYPASS_IDS
-
-        # Skip free users on premium-only cycles
         if premium_only and not user_is_premium:
             continue
 
@@ -80,6 +72,7 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
         channel_id = user.get("notification_channel_id")
         embed_colour = user.get("embed_colour")
         custom_message = user.get("custom_message")
+        ping_role_id = user.get("ping_role_id")
 
         memberships = await get_memberships(access_token)
 
@@ -100,7 +93,7 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
                 await _notify_revoked(bot, discord_id)
                 continue
 
-        # Resolve notification colour
+        # Resolve embed colour
         if embed_colour and user_is_premium:
             try:
                 colour = discord.Color(int(embed_colour.strip("#"), 16))
@@ -109,7 +102,7 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
         else:
             colour = discord.Color.orange()
 
-        # Get all channels to notify
+        # Build channel list
         channels_to_notify = []
         if mode in ("channel", "both") and channel_id:
             channels_to_notify.append(channel_id)
@@ -119,19 +112,27 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
                 if ch not in channels_to_notify:
                     channels_to_notify.append(ch)
 
+        # Build ping content
+        # Premium: ping a role if set, otherwise ping the user
+        # Free: always ping the user
+        if user_is_premium and ping_role_id:
+            channel_ping = f"<@&{ping_role_id}>"
+        else:
+            channel_ping = f"<@{discord_id}>"
+
+        custom_prefix = custom_message if (custom_message and user_is_premium) else None
+
         for membership in memberships:
             campaign_id = membership["campaign_id"]
             creator_name = membership.get("vanity") or "A creator"
             creator_url = membership.get("url", "")
 
             posts = await get_recent_posts(access_token, campaign_id)
-
             if posts is None:
                 continue
 
             for post in posts:
                 post_id = post["id"]
-
                 if await is_post_seen(post_id):
                     continue
 
@@ -146,29 +147,21 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
                 if creator_url:
                     embed.set_footer(text=creator_url)
 
-                # Custom message prefix (premium)
-                content_prefix = custom_message if (custom_message and user_is_premium) else None
-
-                # Send DM
+                # DM — no role ping in DMs, just optional custom prefix
                 if mode in ("dm", "both"):
                     try:
                         discord_user = await bot.fetch_user(discord_id)
-                        await discord_user.send(
-                            content=content_prefix,
-                            embed=embed
-                        )
+                        await discord_user.send(content=custom_prefix, embed=embed)
                     except Exception as e:
                         print(f"[scheduler] Failed to DM {discord_id}: {e}")
 
-                # Send to channels
+                # Channel notifications
                 for ch_id in channels_to_notify:
                     try:
                         channel = bot.get_channel(ch_id)
                         if channel is None:
                             channel = await bot.fetch_channel(ch_id)
-                        await channel.send(
-                            content=f"{content_prefix or ''}<@{discord_id}>".strip(),
-                            embed=embed
-                        )
+                        content = f"{custom_prefix + ' ' if custom_prefix else ''}{channel_ping}".strip()
+                        await channel.send(content=content, embed=embed)
                     except Exception as e:
                         print(f"[scheduler] Failed to send to channel {ch_id}: {e}")

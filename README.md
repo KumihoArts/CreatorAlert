@@ -29,6 +29,7 @@ The two modes work independently but complement each other naturally. If you're 
 | `/premium` | View or subscribe to CreatorAlert Premium |
 | `/customize` | [Premium] Set a custom embed colour and notification message |
 | `/channels` | [Premium] Manage multiple notification channels |
+| `/pingrole` | [Premium] Set a role to ping in channel notifications |
 | `/invite` | Get the bot invite link |
 | `/about` | About CreatorAlert |
 | `/help` | Show all available commands |
@@ -43,6 +44,7 @@ CreatorAlert Premium is available via Discord subscription. Premium members get:
 - Multiple notification channels
 - Custom embed colour
 - Custom notification message
+- Role pings in channel notifications
 
 Use `/premium` in Discord to subscribe.
 
@@ -65,5 +67,7 @@ Join the [KumihoArts support server](https://discord.gg/KVcu3HvHB3) for help, fe
 ## Contributing
 
 Contributions and bug reports are welcome via [GitHub Issues](https://github.com/KumihoArts/CreatorAlert/issues). For significant changes, open an issue first to discuss what you'd like to change.
+
+For self-hosting instructions, see [INSTALLATION.md](INSTALLATION.md).
 
 Built by [KumihoArts](https://github.com/KumihoArts).
