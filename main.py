@@ -9,6 +9,8 @@ from bot.scheduler import start_scheduler
 
 load_dotenv()
 
+AUTH_BASE_URL = os.getenv("AUTH_BASE_URL", "https://auth-production-4018.up.railway.app")
+
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -20,12 +22,18 @@ async def on_ready():
     start_scheduler(bot)
 
 # ---------------------------------------------------------------------------
-# Slash commands (stubs — flesh out in later sessions)
+# Slash commands
 # ---------------------------------------------------------------------------
 
 @bot.tree.command(name="connect", description="Connect your Patreon account")
 async def connect(interaction: discord.Interaction):
-    await interaction.response.send_message("Patreon connect flow — coming soon!", ephemeral=True)
+    url = f"{AUTH_BASE_URL}/connect?discord_id={interaction.user.id}"
+    embed = discord.Embed(
+        title="Connect your Patreon",
+        description=f"Click the link below to connect your Patreon account to CreatorAlert.\n\n[🔗 Connect Patreon]({url})",
+        color=discord.Color.orange()
+    )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @bot.tree.command(name="disconnect", description="Disconnect your Patreon account")
 async def disconnect(interaction: discord.Interaction):
