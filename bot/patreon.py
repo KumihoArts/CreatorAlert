@@ -1,6 +1,28 @@
 import aiohttp
+import os
 
 PATREON_API_BASE = "https://www.patreon.com/api/oauth2/v2"
+PATREON_TOKEN_URL = "https://www.patreon.com/api/oauth2/token"
+
+
+async def refresh_access_token(refresh_token: str) -> dict | None:
+    """
+    Exchange a refresh token for a new access + refresh token pair.
+    Returns dict with access_token, refresh_token, expires_in or None on failure.
+    """
+    async with aiohttp.ClientSession() as session:
+        async with session.post(PATREON_TOKEN_URL, data={
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "client_id": os.getenv("PATREON_CLIENT_ID"),
+            "client_secret": os.getenv("PATREON_CLIENT_SECRET"),
+        }) as resp:
+            if resp.status != 200:
+                text = await resp.text()
+                print(f"[patreon] Token refresh failed: {resp.status} {text}")
+                return None
+            return await resp.json()
+
 
 async def get_identity(access_token: str) -> dict:
     """Fetch the authenticated user's Patreon identity."""
@@ -18,14 +40,10 @@ async def get_identity(access_token: str) -> dict:
 async def get_memberships(access_token: str) -> list[dict]:
     """
     Fetch the campaigns the user is a member of (i.e. creators they support).
-    Returns a list of dicts with campaign_id and creator name.
+    Returns a list of dicts with campaign_id, vanity, and url.
+    Returns None if the token is invalid/revoked (401).
     """
     headers = {"Authorization": f"Bearer {access_token}"}
-    params = {
-        "include": "currently_entitled_tiers,campaign",
-        "fields[member]": "full_name,patron_status",
-        "fields[campaign]": "summary,creation_name,vanity,url",
-    }
     async with aiohttp.ClientSession() as session:
         async with session.get(
             f"{PATREON_API_BASE}/identity",
@@ -36,6 +54,8 @@ async def get_memberships(access_token: str) -> list[dict]:
                 "fields[member]": "patron_status",
             }
         ) as resp:
+            if resp.status == 401:
+                return None  # Signal revoked/expired token
             if resp.status != 200:
                 text = await resp.text()
                 print(f"[patreon] get_memberships failed: {resp.status} {text}")
@@ -58,6 +78,7 @@ async def get_recent_posts(access_token: str, campaign_id: str, limit: int = 10)
     """
     Fetch recent posts from a campaign.
     Returns a list of dicts with post id, title, url, and published_at.
+    Returns None if token is invalid/revoked (401).
     """
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {
@@ -71,6 +92,8 @@ async def get_recent_posts(access_token: str, campaign_id: str, limit: int = 10)
             headers=headers,
             params=params
         ) as resp:
+            if resp.status == 401:
+                return None  # Signal revoked/expired token
             if resp.status != 200:
                 text = await resp.text()
                 print(f"[patreon] get_recent_posts failed for campaign {campaign_id}: {resp.status} {text}")

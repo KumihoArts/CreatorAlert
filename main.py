@@ -4,7 +4,7 @@ from discord import app_commands
 from dotenv import load_dotenv
 import os
 
-from bot.db import init_db, get_user, delete_user, set_notification_mode
+from bot.db import init_db, get_user, delete_user, set_notification_mode, set_creator_channel
 from bot.scheduler import start_scheduler
 
 load_dotenv()
@@ -132,6 +132,44 @@ async def notifications(
     await interaction.followup.send(desc, ephemeral=True)
 
 
+@bot.tree.command(name="setup", description="[Creator] Post Patreon updates to a channel in this server")
+@app_commands.describe(channel="The channel to post new Patreon updates in")
+@app_commands.default_permissions(manage_guild=True)
+async def setup(interaction: discord.Interaction, channel: discord.TextChannel):
+    await interaction.response.defer(ephemeral=True)
+
+    # Must have a connected Patreon account
+    user = await get_user(interaction.user.id)
+    if not user:
+        await interaction.followup.send(
+            "❌ You need to connect your Patreon account first. Use `/connect`.",
+            ephemeral=True
+        )
+        return
+
+    # Check bot has permission to send in that channel
+    perms = channel.permissions_for(interaction.guild.me)
+    if not perms.send_messages or not perms.embed_links:
+        await interaction.followup.send(
+            f"❌ I don't have permission to send messages or embed links in {channel.mention}. "
+            "Please update the channel permissions and try again.",
+            ephemeral=True
+        )
+        return
+
+    await set_creator_channel(interaction.guild.id, channel.id, user["patreon_user_id"])
+
+    embed = discord.Embed(
+        title="✅ Creator channel set",
+        description=(
+            f"New posts from your Patreon will be posted in {channel.mention}.\n\n"
+            "Make sure your notification mode includes **Channel** — use `/notifications` to check."
+        ),
+        color=discord.Color.green()
+    )
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+
 @bot.tree.command(name="testnotification", description="[Dev] Send a test notification to yourself")
 async def testnotification(interaction: discord.Interaction):
     if interaction.user.id != BOT_OWNER_ID:
@@ -181,11 +219,6 @@ async def testnotification(interaction: discord.Interaction):
     await interaction.followup.send(f"Test notification result: {result}", ephemeral=True)
 
 
-@bot.tree.command(name="setup", description="[Creator] Set the channel for Patreon post notifications")
-async def setup(interaction: discord.Interaction):
-    await interaction.response.send_message("Creator setup — coming soon!", ephemeral=True)
-
-
 @bot.tree.command(name="help", description="Show help information")
 async def help_cmd(interaction: discord.Interaction):
     embed = discord.Embed(
@@ -195,9 +228,9 @@ async def help_cmd(interaction: discord.Interaction):
     )
     embed.add_field(name="/connect", value="Link your Patreon account", inline=False)
     embed.add_field(name="/disconnect", value="Unlink your Patreon account", inline=False)
-    embed.add_field(name="/status", value="Check your connection status", inline=False)
+    embed.add_field(name="/status", value="Check your connection status and notification settings", inline=False)
     embed.add_field(name="/notifications", value="Choose how to receive notifications (DM, channel, or both)", inline=False)
-    embed.add_field(name="/setup", value="[Creator] Set notification channel for your server", inline=False)
+    embed.add_field(name="/setup", value="[Creator] Set a channel in this server to receive your Patreon updates", inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 

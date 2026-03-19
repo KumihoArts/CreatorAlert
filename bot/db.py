@@ -14,18 +14,16 @@ async def init_db():
     async with pool.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS patreon_users (
-                discord_id          BIGINT PRIMARY KEY,
-                patreon_user_id     TEXT NOT NULL,
-                access_token        TEXT NOT NULL,
-                refresh_token       TEXT NOT NULL,
-                token_expires       TIMESTAMPTZ,
-                notification_mode   TEXT NOT NULL DEFAULT 'dm',
+                discord_id              BIGINT PRIMARY KEY,
+                patreon_user_id         TEXT NOT NULL,
+                access_token            TEXT NOT NULL,
+                refresh_token           TEXT NOT NULL,
+                token_expires           TIMESTAMPTZ,
+                notification_mode       TEXT NOT NULL DEFAULT 'dm',
                 notification_channel_id BIGINT,
-                connected_at        TIMESTAMPTZ DEFAULT NOW()
+                connected_at            TIMESTAMPTZ DEFAULT NOW()
             )
         """)
-
-        # Migrate existing table if columns are missing
         await conn.execute("""
             ALTER TABLE patreon_users
             ADD COLUMN IF NOT EXISTS notification_mode TEXT NOT NULL DEFAULT 'dm'
@@ -34,7 +32,6 @@ async def init_db():
             ALTER TABLE patreon_users
             ADD COLUMN IF NOT EXISTS notification_channel_id BIGINT
         """)
-
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS creator_channels (
                 guild_id        BIGINT NOT NULL,
@@ -43,7 +40,6 @@ async def init_db():
                 PRIMARY KEY (guild_id, patreon_user_id)
             )
         """)
-
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS seen_posts (
                 post_id         TEXT PRIMARY KEY,
@@ -51,7 +47,6 @@ async def init_db():
                 seen_at         TIMESTAMPTZ DEFAULT NOW()
             )
         """)
-
     print("Database initialised.")
 
 
@@ -70,6 +65,17 @@ async def delete_user(discord_id: int):
         await conn.execute(
             "DELETE FROM patreon_users WHERE discord_id = $1", discord_id
         )
+
+
+async def update_tokens(discord_id: int, access_token: str, refresh_token: str):
+    """Update stored OAuth tokens after a successful refresh."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE patreon_users
+            SET access_token = $2, refresh_token = $3
+            WHERE discord_id = $1
+        """, discord_id, access_token, refresh_token)
 
 
 async def set_notification_mode(discord_id: int, mode: str, channel_id: int | None = None):
