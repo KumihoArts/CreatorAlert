@@ -21,6 +21,8 @@ async def init_db():
                 token_expires           TIMESTAMPTZ,
                 notification_mode       TEXT NOT NULL DEFAULT 'dm',
                 notification_channel_id BIGINT,
+                embed_colour            TEXT,
+                custom_message          TEXT,
                 connected_at            TIMESTAMPTZ DEFAULT NOW()
             )
         """)
@@ -31,6 +33,22 @@ async def init_db():
         await conn.execute("""
             ALTER TABLE patreon_users
             ADD COLUMN IF NOT EXISTS notification_channel_id BIGINT
+        """)
+        await conn.execute("""
+            ALTER TABLE patreon_users
+            ADD COLUMN IF NOT EXISTS embed_colour TEXT
+        """)
+        await conn.execute("""
+            ALTER TABLE patreon_users
+            ADD COLUMN IF NOT EXISTS custom_message TEXT
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS premium_channels (
+                id              SERIAL PRIMARY KEY,
+                discord_id      BIGINT NOT NULL,
+                channel_id      BIGINT NOT NULL,
+                UNIQUE (discord_id, channel_id)
+            )
         """)
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS creator_channels (
@@ -65,10 +83,12 @@ async def delete_user(discord_id: int):
         await conn.execute(
             "DELETE FROM patreon_users WHERE discord_id = $1", discord_id
         )
+        await conn.execute(
+            "DELETE FROM premium_channels WHERE discord_id = $1", discord_id
+        )
 
 
 async def update_tokens(discord_id: int, access_token: str, refresh_token: str):
-    """Update stored OAuth tokens after a successful refresh."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute("""
@@ -86,6 +106,44 @@ async def set_notification_mode(discord_id: int, mode: str, channel_id: int | No
             SET notification_mode = $2, notification_channel_id = $3
             WHERE discord_id = $1
         """, discord_id, mode, channel_id)
+
+
+async def set_premium_style(discord_id: int, embed_colour: str | None, custom_message: str | None):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE patreon_users
+            SET embed_colour = $2, custom_message = $3
+            WHERE discord_id = $1
+        """, discord_id, embed_colour, custom_message)
+
+
+async def add_premium_channel(discord_id: int, channel_id: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO premium_channels (discord_id, channel_id)
+            VALUES ($1, $2)
+            ON CONFLICT (discord_id, channel_id) DO NOTHING
+        """, discord_id, channel_id)
+
+
+async def remove_premium_channel(discord_id: int, channel_id: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            DELETE FROM premium_channels
+            WHERE discord_id = $1 AND channel_id = $2
+        """, discord_id, channel_id)
+
+
+async def get_premium_channels(discord_id: int) -> list[int]:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT channel_id FROM premium_channels WHERE discord_id = $1", discord_id
+        )
+        return [r["channel_id"] for r in rows]
 
 
 async def get_all_users() -> list[dict]:
