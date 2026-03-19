@@ -116,10 +116,13 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
 
             for post in posts:
                 post_id = post["id"]
-                if await is_post_seen(post_id):
+
+                # Check seen per discord user — ensures every subscriber is notified
+                # independently, regardless of what order they're polled
+                if await is_post_seen(discord_id, post_id):
                     continue
 
-                await mark_post_seen(post_id, campaign_id)
+                await mark_post_seen(discord_id, post_id)
 
                 embed = discord.Embed(
                     title=f"📬 New post from {creator_name}",
@@ -152,14 +155,10 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
                         channel = bot.get_channel(ch_id)
                         if channel is None:
                             channel = await bot.fetch_channel(ch_id)
-
-                        # Use ping role if set, otherwise no ping
-                        # (the creator chose what gets pinged via /pingrole)
                         if ping_role_id:
                             ping = f"<@&{ping_role_id}>"
                         else:
                             ping = None
-
                         content = f"{custom_prefix + ' ' if custom_prefix else ''}{ping or ''}".strip() or None
                         await channel.send(content=content, embed=embed)
                     except Exception as e:
