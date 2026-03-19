@@ -10,6 +10,7 @@ from bot.scheduler import start_scheduler
 load_dotenv()
 
 AUTH_BASE_URL = os.getenv("AUTH_BASE_URL", "https://auth-production-4018.up.railway.app")
+TEST_GUILD_ID = int(os.getenv("TEST_GUILD_ID", "0"))
 
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -18,6 +19,13 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 async def on_ready():
     print(f"Logged in as {bot.user} ({bot.user.id})")
     await init_db()
+    # Guild sync is instant — for test server
+    if TEST_GUILD_ID:
+        guild = discord.Object(id=TEST_GUILD_ID)
+        bot.tree.copy_global_to(guild=guild)
+        await bot.tree.sync(guild=guild)
+        print(f"Commands synced to test guild {TEST_GUILD_ID}.")
+    # Global sync propagates slowly but covers all servers
     await bot.tree.sync()
     start_scheduler(bot)
 
