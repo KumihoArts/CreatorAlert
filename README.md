@@ -12,6 +12,9 @@ Connect your Patreon account once, then choose how you want to be notified — b
 ### For creators
 Add the bot to your Discord server, connect your Patreon, and designate a channel for post announcements. Every time you publish on Patreon, CreatorAlert posts it automatically — no copy-pasting required.
 
+### Better together
+The two modes work independently but complement each other naturally. If you're a creator with the bot in your server, your fans can use the exact same bot to set up their own personal notifications — for you, or for any other creator they support on Patreon. Your server becomes a natural place for your community to discover the bot, and each member can configure it exactly how they want.
+
 ---
 
 ## Commands
