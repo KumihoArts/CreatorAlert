@@ -11,6 +11,7 @@ load_dotenv()
 
 AUTH_BASE_URL = os.getenv("AUTH_BASE_URL", "https://auth-production-4018.up.railway.app")
 TEST_GUILD_ID = int(os.getenv("TEST_GUILD_ID", "0"))
+BOT_OWNER_ID = 244962442008854540
 
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -19,13 +20,11 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 async def on_ready():
     print(f"Logged in as {bot.user} ({bot.user.id})")
     await init_db()
-    # Guild sync is instant — for test server
     if TEST_GUILD_ID:
         guild = discord.Object(id=TEST_GUILD_ID)
         bot.tree.copy_global_to(guild=guild)
         await bot.tree.sync(guild=guild)
         print(f"Commands synced to test guild {TEST_GUILD_ID}.")
-    # Global sync propagates slowly but covers all servers
     await bot.tree.sync()
     start_scheduler(bot)
 
@@ -131,6 +130,55 @@ async def notifications(
         desc += f"\nNotifications will be sent to {channel.mention}."
 
     await interaction.followup.send(desc, ephemeral=True)
+
+
+@bot.tree.command(name="testnotification", description="[Dev] Send a test notification to yourself")
+async def testnotification(interaction: discord.Interaction):
+    if interaction.user.id != BOT_OWNER_ID:
+        await interaction.response.send_message("❌ This command is restricted.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    user = await get_user(interaction.user.id)
+    if not user:
+        await interaction.followup.send("❌ No Patreon account connected.", ephemeral=True)
+        return
+
+    mode = user.get("notification_mode", "dm")
+    channel_id = user.get("notification_channel_id")
+
+    embed = discord.Embed(
+        title="📬 New post from Test Creator",
+        description="**This is a test notification from CreatorAlert!**",
+        url="https://www.patreon.com",
+        color=discord.Color.orange()
+    )
+    embed.set_footer(text="This is a test — real notifications will look just like this.")
+
+    sent = []
+
+    if mode in ("dm", "both"):
+        try:
+            await interaction.user.send(embed=embed)
+            sent.append("DM ✅")
+        except Exception as e:
+            sent.append(f"DM failed: {e}")
+
+    if mode in ("channel", "both") and channel_id:
+        try:
+            channel = bot.get_channel(channel_id) or await bot.fetch_channel(channel_id)
+            await channel.send(f"<@{interaction.user.id}>", embed=embed)
+            sent.append(f"<#{channel_id}> ✅")
+        except Exception as e:
+            sent.append(f"Channel failed: {e}")
+
+    if not sent:
+        result = "Nothing sent — check your `/notifications` mode setting."
+    else:
+        result = ", ".join(sent)
+
+    await interaction.followup.send(f"Test notification result: {result}", ephemeral=True)
 
 
 @bot.tree.command(name="setup", description="[Creator] Set the channel for Patreon post notifications")
