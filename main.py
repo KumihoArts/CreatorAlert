@@ -18,7 +18,6 @@ load_dotenv()
 logging.getLogger("discord.ext.commands.bot").setLevel(logging.ERROR)
 
 AUTH_BASE_URL = os.getenv("AUTH_BASE_URL", "https://auth-production-4018.up.railway.app")
-TEST_GUILD_ID = int(os.getenv("TEST_GUILD_ID", "0"))
 BOT_OWNER_ID = 244962442008854540
 BOT_VERSION = "1.1.0"
 GITHUB_URL = "https://github.com/KumihoArts/CreatorAlert"
@@ -61,12 +60,8 @@ async def post_dbl_commands():
 async def on_ready():
     print(f"Logged in as {bot.user} ({bot.user.id})")
     await init_db()
-    if TEST_GUILD_ID:
-        guild = discord.Object(id=TEST_GUILD_ID)
-        bot.tree.copy_global_to(guild=guild)
-        await bot.tree.sync(guild=guild)
-        print(f"Commands synced to test guild {TEST_GUILD_ID}.")
     await bot.tree.sync()
+    print("Global commands synced.")
     await post_dbl_commands()
     start_scheduler(bot)
 
@@ -218,7 +213,6 @@ async def pingrole(interaction: discord.Interaction, role: discord.Role = None):
         )
         return
 
-    # Must have a creator channel set up in this guild first
     existing_channel = await get_creator_channel(interaction.guild.id, user["patreon_user_id"])
     if not existing_channel:
         await interaction.followup.send(
@@ -233,14 +227,12 @@ async def pingrole(interaction: discord.Interaction, role: discord.Role = None):
         )
         return
 
-    # Block @everyone and @here
     if role.is_default() or role.name == "@everyone":
         await interaction.followup.send(
             "❌ You cannot set `@everyone` as the ping role.", ephemeral=True
         )
         return
 
-    # Block roles higher than the bot's highest role (prevents privilege escalation)
     if role >= interaction.guild.me.top_role:
         await interaction.followup.send(
             f"❌ I can't ping {role.mention} because it's higher than or equal to my own role. "
