@@ -58,12 +58,14 @@ Full details: [Terms of Service](legal/TERMS_OF_SERVICE.md) · [Privacy Notice](
 
 Join the [KumihoArts support server](https://discord.gg/KVcu3HvHB3) for help, feedback, and updates.
 
+See [SETUP_GUIDE.md](SETUP_GUIDE.md) for a full walkthrough on getting started as a supporter or creator.
+
 ---
 
 ## Contributing
 
 Contributions and bug reports are welcome via [GitHub Issues](https://github.com/KumihoArts/CreatorAlert/issues). For significant changes, open an issue first to discuss what you'd like to change.
 
-For self-hosting instructions, see [INSTALLATION.md](INSTALLATION.md).
+For self-hosting instructions, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Built by [KumihoArts](https://github.com/KumihoArts).
