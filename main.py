@@ -5,12 +5,16 @@ from dotenv import load_dotenv
 import logging
 import os
 
-from bot.db import init_db, get_user, delete_user, set_notification_mode, set_creator_channel, get_creator_channel
+from bot.db import (
+    init_db, get_user, delete_user, set_notification_mode, set_creator_channel,
+    get_creator_channel, set_premium_style, add_premium_channel, remove_premium_channel,
+    get_premium_channels
+)
+from bot.premium import is_premium, PREMIUM_SKU_ID
 from bot.scheduler import start_scheduler
 
 load_dotenv()
 
-# Suppress the misleading privileged intent warning — we intentionally don't use these
 logging.getLogger("discord.ext.commands.bot").setLevel(logging.ERROR)
 
 AUTH_BASE_URL = os.getenv("AUTH_BASE_URL", "https://auth-production-4018.up.railway.app")
@@ -37,6 +41,13 @@ async def on_ready():
     start_scheduler(bot)
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _check_premium(interaction: discord.Interaction) -> bool:
+    return is_premium(interaction.user.id, list(interaction.entitlements))
+
+# ---------------------------------------------------------------------------
 # Slash commands
 # ---------------------------------------------------------------------------
 
@@ -61,7 +72,6 @@ async def disconnect(interaction: discord.Interaction):
         )
         return
 
-    # Confirmation step
     view = ConfirmDisconnectView()
     await interaction.followup.send(
         "Are you sure you want to disconnect your Patreon account? "
@@ -97,6 +107,8 @@ class ConfirmDisconnectView(discord.ui.View):
 async def status(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     user = await get_user(interaction.user.id)
+    premium = _check_premium(interaction)
+
     if not user:
         embed = discord.Embed(
             title="Patreon Status",
@@ -120,6 +132,23 @@ async def status(interaction: discord.Interaction):
         embed.add_field(name="Notification mode", value=mode_display, inline=True)
         if mode in ("channel", "both"):
             embed.add_field(name="Notification channel", value=channel_str, inline=True)
+        embed.add_field(name="Premium", value="✅ Active" if premium else "❌ Not subscribed", inline=False)
+
+        if premium:
+            extra_channels = await get_premium_channels(interaction.user.id)
+            if extra_channels:
+                embed.add_field(
+                    name="Extra channels",
+                    value=", ".join(f"<#{ch}>" for ch in extra_channels),
+                    inline=False
+                )
+            custom_msg = user.get("custom_message")
+            colour = user.get("embed_colour")
+            if custom_msg:
+                embed.add_field(name="Custom message", value=custom_msg, inline=False)
+            if colour:
+                embed.add_field(name="Embed colour", value=colour, inline=True)
+
     await interaction.followup.send(embed=embed, ephemeral=True)
 
 
@@ -189,16 +218,11 @@ async def setup(interaction: discord.Interaction, channel: discord.TextChannel):
         )
         return
 
-    # Check if there's already a channel set for this creator in this guild
     existing = await get_creator_channel(interaction.guild.id, user["patreon_user_id"])
-
     await set_creator_channel(interaction.guild.id, channel.id, user["patreon_user_id"])
 
     if existing and existing != channel.id:
-        desc = (
-            f"Notification channel updated to {channel.mention}.\n\n"
-            f"Previously set to <#{existing}>."
-        )
+        desc = f"Notification channel updated to {channel.mention}.\n\nPreviously set to <#{existing}>."
     else:
         desc = (
             f"New posts from your Patreon will be posted in {channel.mention}.\n\n"
@@ -211,6 +235,178 @@ async def setup(interaction: discord.Interaction, channel: discord.TextChannel):
         color=discord.Color.green()
     )
     await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+@bot.tree.command(name="premium", description="Check your CreatorAlert Premium status")
+async def premium_status(interaction: discord.Interaction):
+    premium = _check_premium(interaction)
+    if premium:
+        embed = discord.Embed(
+            title="✅ Premium Active",
+            description=(
+                "You have an active CreatorAlert Premium subscription. "
+                "Your notifications are checked every 3 minutes.\n\n"
+                "Use `/customize` to set a custom embed colour or notification message.\n"
+                "Use `/channels` to manage multiple notification channels."
+            ),
+            color=discord.Color.gold()
+        )
+    else:
+        embed = discord.Embed(
+            title="CreatorAlert Premium",
+            description=(
+                "Upgrade to Premium for faster notifications, custom styling, and multiple channels.\n\n"
+                "Subscribe via the button below."
+            ),
+            color=discord.Color.blurple()
+        )
+        embed.add_field(name="Faster polling", value="Every 3 min instead of 10", inline=True)
+        embed.add_field(name="Multiple channels", value="Notify as many channels as you want", inline=True)
+        embed.add_field(name="Custom colour", value="Set your embed colour", inline=True)
+        embed.add_field(name="Custom message", value="Add a personal intro to notifications", inline=True)
+
+    await interaction.response.send_message(
+        embed=embed,
+        view=PremiumSubscribeView() if not premium else None,
+        ephemeral=True
+    )
+
+
+class PremiumSubscribeView(discord.ui.View):
+    def __init__(self):
+        super().__init__()
+        self.add_item(discord.ui.Button(
+            label="Subscribe to Premium",
+            style=discord.ButtonStyle.premium,
+            sku_id=PREMIUM_SKU_ID
+        ))
+
+
+@bot.tree.command(name="customize", description="[Premium] Customize your notification embed colour and message")
+@app_commands.describe(
+    colour="Hex colour for your notification embeds (e.g. #ff6600)",
+    message="Custom message prepended to every notification (e.g. 'New post!')"
+)
+async def customize(
+    interaction: discord.Interaction,
+    colour: str = None,
+    message: str = None
+):
+    await interaction.response.defer(ephemeral=True)
+
+    if not _check_premium(interaction):
+        await interaction.followup.send(
+            "❌ This feature requires **CreatorAlert Premium**. Use `/premium` to subscribe.",
+            ephemeral=True
+        )
+        return
+
+    user = await get_user(interaction.user.id)
+    if not user:
+        await interaction.followup.send(
+            "❌ You need to connect your Patreon account first. Use `/connect`.",
+            ephemeral=True
+        )
+        return
+
+    # Validate hex colour
+    if colour:
+        colour = colour.strip()
+        if not colour.startswith("#") or len(colour) != 7:
+            await interaction.followup.send(
+                "❌ Invalid colour format. Please use a hex code like `#ff6600`.",
+                ephemeral=True
+            )
+            return
+        try:
+            int(colour[1:], 16)
+        except ValueError:
+            await interaction.followup.send(
+                "❌ Invalid hex colour. Please use a format like `#ff6600`.",
+                ephemeral=True
+            )
+            return
+
+    # Validate message length
+    if message and len(message) > 200:
+        await interaction.followup.send(
+            "❌ Custom message must be 200 characters or fewer.",
+            ephemeral=True
+        )
+        return
+
+    await set_premium_style(interaction.user.id, colour, message)
+
+    lines = ["✅ Customisation saved."]
+    if colour:
+        lines.append(f"Embed colour set to `{colour}`.")
+    if message:
+        lines.append(f"Custom message set to: *{message}*")
+    if not colour and not message:
+        lines = ["✅ Customisation cleared."]
+
+    await interaction.followup.send("\n".join(lines), ephemeral=True)
+
+
+@bot.tree.command(name="channels", description="[Premium] Manage additional notification channels")
+@app_commands.describe(
+    action="Add or remove a channel",
+    channel="The channel to add or remove"
+)
+@app_commands.choices(action=[
+    app_commands.Choice(name="Add channel", value="add"),
+    app_commands.Choice(name="Remove channel", value="remove"),
+    app_commands.Choice(name="List channels", value="list"),
+])
+async def channels(
+    interaction: discord.Interaction,
+    action: app_commands.Choice[str],
+    channel: discord.TextChannel = None
+):
+    await interaction.response.defer(ephemeral=True)
+
+    if not _check_premium(interaction):
+        await interaction.followup.send(
+            "❌ This feature requires **CreatorAlert Premium**. Use `/premium` to subscribe.",
+            ephemeral=True
+        )
+        return
+
+    user = await get_user(interaction.user.id)
+    if not user:
+        await interaction.followup.send(
+            "❌ You need to connect your Patreon account first. Use `/connect`.",
+            ephemeral=True
+        )
+        return
+
+    if action.value == "list":
+        extra = await get_premium_channels(interaction.user.id)
+        if not extra:
+            await interaction.followup.send("You have no extra notification channels set up.", ephemeral=True)
+        else:
+            channel_list = "\n".join(f"• <#{ch}>" for ch in extra)
+            await interaction.followup.send(f"Your extra notification channels:\n{channel_list}", ephemeral=True)
+        return
+
+    if channel is None:
+        await interaction.followup.send("❌ Please specify a channel.", ephemeral=True)
+        return
+
+    if action.value == "add":
+        perms = channel.permissions_for(interaction.guild.me)
+        if not perms.send_messages or not perms.embed_links:
+            await interaction.followup.send(
+                f"❌ I don't have permission to send messages in {channel.mention}.",
+                ephemeral=True
+            )
+            return
+        await add_premium_channel(interaction.user.id, channel.id)
+        await interaction.followup.send(f"✅ {channel.mention} added to your notification channels.", ephemeral=True)
+
+    elif action.value == "remove":
+        await remove_premium_channel(interaction.user.id, channel.id)
+        await interaction.followup.send(f"✅ {channel.mention} removed from your notification channels.", ephemeral=True)
 
 
 @bot.tree.command(name="invite", description="Get the link to invite CreatorAlert to your server")
@@ -242,7 +438,7 @@ async def about(interaction: discord.Interaction):
         color=discord.Color.orange()
     )
     embed.add_field(name="Version", value=BOT_VERSION, inline=True)
-    embed.add_field(name="Polling interval", value="Every 10 minutes", inline=True)
+    embed.add_field(name="Polling interval", value="Every 3 min (Premium) / 10 min (Free)", inline=True)
     embed.add_field(
         name="Links",
         value=f"[Invite]({invite_url}) · [GitHub]({GITHUB_URL}) · "
@@ -305,6 +501,7 @@ async def testnotification(interaction: discord.Interaction):
 
 @bot.tree.command(name="help", description="Show help information")
 async def help_cmd(interaction: discord.Interaction):
+    premium = _check_premium(interaction)
     embed = discord.Embed(
         title="CreatorAlert Help",
         description="Get notified when Patreon creators you support post new content.",
@@ -315,6 +512,10 @@ async def help_cmd(interaction: discord.Interaction):
     embed.add_field(name="/status", value="Check your connection status and notification settings", inline=False)
     embed.add_field(name="/notifications", value="Choose how to receive notifications (DM, channel, or both)", inline=False)
     embed.add_field(name="/setup", value="[Creator] Set a channel in this server to receive your Patreon updates", inline=False)
+    embed.add_field(name="/premium", value="View or subscribe to CreatorAlert Premium", inline=False)
+    if premium:
+        embed.add_field(name="/customize", value="[Premium] Set a custom embed colour and notification message", inline=False)
+        embed.add_field(name="/channels", value="[Premium] Manage multiple notification channels", inline=False)
     embed.add_field(name="/invite", value="Get the link to invite CreatorAlert to your server", inline=False)
     embed.add_field(name="/about", value="About CreatorAlert", inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
