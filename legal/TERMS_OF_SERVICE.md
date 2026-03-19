@@ -35,7 +35,7 @@ You agree not to:
 The Bot is provided on a best-effort basis. We do not guarantee uptime, accuracy of notifications, or uninterrupted service. Polling intervals and feature availability may change at any time without notice.
 
 ## 9. Premium Features
-Certain features may in future require a paid subscription or supporter tier. Any such changes will be announced in advance.
+Certain features require an active CreatorAlert Premium subscription via Discord. Subscription fees and feature availability are subject to change with reasonable notice.
 
 ## 10. Termination
 We reserve the right to restrict or terminate your access to the Bot at any time, for any reason, including violation of these Terms.
@@ -47,4 +47,4 @@ The Bot is provided "as is" without warranties of any kind. We are not responsib
 These Terms may be updated at any time. Continued use of the Bot after changes constitutes acceptance of the updated Terms.
 
 ## 13. Contact
-For questions or concerns, contact the bot owner via Discord: **Sly** (`244962442008854540`).
+For questions or concerns, join the [KumihoArts support server](https://discord.gg/KVcu3HvHB3) or contact the bot owner via Discord: **Sly** (`244962442008854540`).
