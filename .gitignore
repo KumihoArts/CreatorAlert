@@ -1,5 +1,7 @@
 # Environment
 .env
+.env.local
+auth/.env
 
 # Python
 __pycache__/
@@ -16,7 +18,23 @@ env/
 
 # Logs
 *.log
+logs/
 
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Railway
+.railway/
+
+# Testing
+.pytest_cache/
+htmlcov/
+.coverage
