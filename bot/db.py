@@ -23,6 +23,7 @@ async def init_db():
                 notification_channel_id BIGINT,
                 embed_colour            TEXT,
                 custom_message          TEXT,
+                ping_role_id            BIGINT,
                 connected_at            TIMESTAMPTZ DEFAULT NOW()
             )
         """)
@@ -41,6 +42,10 @@ async def init_db():
         await conn.execute("""
             ALTER TABLE patreon_users
             ADD COLUMN IF NOT EXISTS custom_message TEXT
+        """)
+        await conn.execute("""
+            ALTER TABLE patreon_users
+            ADD COLUMN IF NOT EXISTS ping_role_id BIGINT
         """)
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS premium_channels (
@@ -116,6 +121,16 @@ async def set_premium_style(discord_id: int, embed_colour: str | None, custom_me
             SET embed_colour = $2, custom_message = $3
             WHERE discord_id = $1
         """, discord_id, embed_colour, custom_message)
+
+
+async def set_ping_role(discord_id: int, role_id: int | None):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE patreon_users
+            SET ping_role_id = $2
+            WHERE discord_id = $1
+        """, discord_id, role_id)
 
 
 async def add_premium_channel(discord_id: int, channel_id: int):
