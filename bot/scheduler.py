@@ -3,7 +3,7 @@ import discord
 
 from bot.db import (
     get_all_users, is_post_seen, mark_post_seen, update_tokens,
-    delete_user, get_creator_channels_for_patreon_user
+    delete_user, get_creator_channels_for_patreon_user, get_user_by_patreon_id
 )
 from bot.patreon import get_memberships, get_recent_posts, refresh_access_token
 from bot.premium import PREMIUM_BYPASS_IDS
@@ -114,11 +114,17 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
             if posts is None:
                 continue
 
+            # Check if the campaign owner has a CreatorAlert account.
+            # Used to skip subscriber DM when the user IS the campaign owner.
+            creator_account = await get_user_by_patreon_id(campaign_id)
+            user_is_campaign_owner = (
+                creator_account is not None and
+                creator_account["discord_id"] == discord_id
+            )
+
             for post in posts:
                 post_id = post["id"]
 
-                # Check seen per discord user — ensures every subscriber is notified
-                # independently, regardless of what order they're polled
                 if await is_post_seen(discord_id, post_id):
                     continue
 
@@ -134,18 +140,19 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
                     embed.set_footer(text=creator_url)
 
                 # -----------------------------------------------------------
-                # SUBSCRIBER MODE — always DM only, never public
+                # SUBSCRIBER MODE — DM only, skip if user owns this campaign
                 # -----------------------------------------------------------
-                try:
-                    discord_user = await bot.fetch_user(discord_id)
-                    await discord_user.send(content=custom_prefix, embed=embed)
-                except Exception as e:
-                    print(f"[scheduler] Failed to DM subscriber {discord_id}: {e}")
+                if not user_is_campaign_owner:
+                    try:
+                        discord_user = await bot.fetch_user(discord_id)
+                        await discord_user.send(content=custom_prefix, embed=embed)
+                    except Exception as e:
+                        print(f"[scheduler] Failed to DM subscriber {discord_id}: {e}")
 
                 # -----------------------------------------------------------
                 # CREATOR MODE — post to server channels set via /setup
-                # Only fires if this user IS the creator of this campaign
-                # and has set up a channel via /setup
+                # Uses the campaign_id to look up creator channels, since
+                # Patreon campaign IDs are distinct from user IDs
                 # -----------------------------------------------------------
                 creator_channels = await get_creator_channels_for_patreon_user(
                     user["patreon_user_id"]

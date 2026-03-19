@@ -45,24 +45,49 @@ async def init_db():
             ALTER TABLE creator_channels
             ADD COLUMN IF NOT EXISTS ping_role_id BIGINT
         """)
-        # seen_posts is now per discord_id + post_id
-        # This ensures every subscriber gets notified independently
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS seen_posts (
-                discord_id      BIGINT NOT NULL,
-                post_id         TEXT NOT NULL,
-                seen_at         TIMESTAMPTZ DEFAULT NOW(),
-                PRIMARY KEY (discord_id, post_id)
+
+        # Check what schema seen_posts currently has and migrate if needed.
+        # Old schema: PRIMARY KEY (post_id) — breaks per-user tracking.
+        # New schema: PRIMARY KEY (discord_id, post_id) — correct.
+        has_seen_posts = await conn.fetchval("""
+            SELECT EXISTS (
+                SELECT 1 FROM information_schema.tables
+                WHERE table_name = 'seen_posts'
             )
         """)
-        # Migrate old seen_posts table if it has the old schema (post_id as primary key only)
-        # Add discord_id column if missing — old rows will be cleaned up naturally over time
-        try:
-            await conn.execute("""
-                ALTER TABLE seen_posts ADD COLUMN IF NOT EXISTS discord_id BIGINT NOT NULL DEFAULT 0
+
+        if has_seen_posts:
+            # Check if discord_id column exists and is part of the primary key
+            discord_id_col = await conn.fetchval("""
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'seen_posts' AND column_name = 'discord_id'
+                )
             """)
-        except Exception:
-            pass
+            if not discord_id_col:
+                # Old schema — drop and recreate with correct schema
+                # Old rows are useless (no per-user tracking) so dropping is safe
+                print("Migrating seen_posts table to per-user schema...")
+                await conn.execute("DROP TABLE seen_posts")
+                await conn.execute("""
+                    CREATE TABLE seen_posts (
+                        discord_id      BIGINT NOT NULL,
+                        post_id         TEXT NOT NULL,
+                        seen_at         TIMESTAMPTZ DEFAULT NOW(),
+                        PRIMARY KEY (discord_id, post_id)
+                    )
+                """)
+                print("seen_posts migration complete.")
+        else:
+            await conn.execute("""
+                CREATE TABLE seen_posts (
+                    discord_id      BIGINT NOT NULL,
+                    post_id         TEXT NOT NULL,
+                    seen_at         TIMESTAMPTZ DEFAULT NOW(),
+                    PRIMARY KEY (discord_id, post_id)
+                )
+            """)
+
     print("Database initialised.")
 
 
@@ -71,6 +96,16 @@ async def get_user(discord_id: int) -> dict | None:
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             "SELECT * FROM patreon_users WHERE discord_id = $1", discord_id
+        )
+        return dict(row) if row else None
+
+
+async def get_user_by_patreon_id(patreon_user_id: str) -> dict | None:
+    """Look up a Discord user by their Patreon user ID."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT * FROM patreon_users WHERE patreon_user_id = $1", patreon_user_id
         )
         return dict(row) if row else None
 
