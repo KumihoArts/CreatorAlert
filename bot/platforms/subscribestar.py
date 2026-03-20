@@ -6,10 +6,6 @@ SUBSCRIBESTAR_TOKEN_URL = "https://www.subscribestar.com/oauth2/token"
 
 
 async def refresh_access_token(refresh_token: str) -> dict | None:
-    """
-    Exchange a SubscribeStar refresh token for a new access + refresh token pair.
-    Returns dict with access_token, refresh_token, expires_in or None on failure.
-    """
     async with aiohttp.ClientSession() as session:
         async with session.post(
             SUBSCRIBESTAR_TOKEN_URL,
@@ -29,10 +25,6 @@ async def refresh_access_token(refresh_token: str) -> dict | None:
 
 
 async def _graphql(access_token: str, query: str) -> dict | None:
-    """
-    Execute a GraphQL query against the SubscribeStar API.
-    Returns the response data dict, or None on 401.
-    """
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
@@ -54,9 +46,9 @@ async def _graphql(access_token: str, query: str) -> dict | None:
 
 async def get_memberships(access_token: str) -> list[dict] | None:
     """
-    Fetch the stars (creators) the user is subscribed to on SubscribeStar.
+    Fetch the creators the user is subscribed to on SubscribeStar.
     Returns a list of dicts with campaign_id, vanity, and url.
-    Returns None if the token is invalid/revoked (401).
+    Returns None on 401.
     """
     query = """
     {
@@ -64,10 +56,10 @@ async def get_memberships(access_token: str) -> list[dict] | None:
             subscriptions {
                 edges {
                     node {
-                        star {
+                        content_provider_profile {
                             id
                             name
-                            star_page
+                            url
                         }
                     }
                 }
@@ -77,17 +69,21 @@ async def get_memberships(access_token: str) -> list[dict] | None:
     """
     data = await _graphql(access_token, query)
     if data is None:
-        return None  # 401 — token invalid
+        return None
+
+    if data.get("errors"):
+        print(f"[subscribestar] get_memberships errors: {data['errors']}")
+        return []
 
     memberships = []
     try:
         edges = data["data"]["user"]["subscriptions"]["edges"]
         for edge in edges:
-            star = edge["node"]["star"]
+            cp = edge["node"]["content_provider_profile"]
             memberships.append({
-                "campaign_id": str(star["id"]),
-                "vanity": star.get("name", "Unknown"),
-                "url": star.get("star_page", ""),
+                "campaign_id": str(cp["id"]),
+                "vanity": cp.get("name", "Unknown"),
+                "url": cp.get("url", ""),
             })
     except (KeyError, TypeError) as e:
         print(f"[subscribestar] Failed to parse memberships: {e} | data: {data}")
@@ -99,8 +95,7 @@ async def get_memberships(access_token: str) -> list[dict] | None:
 async def get_recent_posts(access_token: str, campaign_id: str, limit: int = 10) -> list[dict] | None:
     """
     Fetch recent posts from a SubscribeStar creator by their star ID.
-    Returns a list of dicts with post id, title, url, and published_at.
-    Returns None if token is invalid/revoked (401).
+    Returns None on 401.
     """
     query = f"""
     {{
@@ -120,7 +115,11 @@ async def get_recent_posts(access_token: str, campaign_id: str, limit: int = 10)
     """
     data = await _graphql(access_token, query)
     if data is None:
-        return None  # 401 — token invalid
+        return None
+
+    if data.get("errors"):
+        print(f"[subscribestar] get_recent_posts errors: {data['errors']}")
+        return []
 
     posts = []
     try:
@@ -132,6 +131,8 @@ async def get_recent_posts(access_token: str, campaign_id: str, limit: int = 10)
                 "title": node.get("title") or "New Post",
                 "url": node.get("url", ""),
                 "published_at": node.get("created_at", ""),
+                "excerpt": "",
+                "is_public": False,
             })
     except (KeyError, TypeError) as e:
         print(f"[subscribestar] Failed to parse posts for star {campaign_id}: {e} | data: {data}")

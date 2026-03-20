@@ -236,7 +236,17 @@ def callback_subscribestar():
         return error_page("Could not retrieve SubscribeStar user ID.")
 
     asyncio.run(save_account(int(discord_id), "subscribestar", platform_user_id, access_token, refresh_token))
-    return success_page("SubscribeStar", account_name), 200
+    return f"""
+    <html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#1a1a2e;color:#eee;">
+        <h2>✅ SubscribeStar Connected!</h2>
+        <p>Your SubscribeStar account <strong>{account_name}</strong> has been linked to your Discord account.</p>
+        <hr style="border-color:#444;margin:30px auto;width:60%;">
+        <p style="color:#ffcc00;font-size:0.9em;">⚠️ <strong>Heads up:</strong> SubscribeStar's API does not currently
+        expose post content, so CreatorAlert cannot send post notifications for SubscribeStar at this time.
+        Your account is saved and notifications will be enabled automatically if this changes in future.</p>
+        <p>You can close this tab and return to Discord.</p>
+    </body></html>
+    """, 200
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +292,6 @@ def callback_gumroad():
 
     token_data = token_response.json()
     access_token = token_data.get("access_token")
-    # Gumroad tokens don't expire — no refresh token
     refresh_token = token_data.get("refresh_token", "")
 
     identity_response = requests.get(
