@@ -170,7 +170,7 @@ def connect_subscribestar():
         "response_type": "code",
         "client_id": SUBSCRIBESTAR_CLIENT_ID,
         "redirect_uri": SUBSCRIBESTAR_REDIRECT_URI,
-        "scope": "user.read user.subscriptions.read",
+        "scope": "user.read user.subscriptions.read subscriber.read",
         "state": discord_id,
     }
     return redirect(f"{SUBSCRIBESTAR_AUTH_URL}?{urlencode(params)}")
