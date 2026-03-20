@@ -8,8 +8,9 @@ import os
 
 from bot.db import (
     init_db, get_user, get_all_user_platforms, delete_user, set_premium_style,
-    set_creator_channel, get_creator_channel, set_creator_ping_role,
-    mute_creator, unmute_creator, get_muted_creators, get_muted_creators_with_platform
+    set_creator_channel, get_creator_channel, get_creator_channels_for_guild,
+    set_creator_ping_role, mute_creator, unmute_creator, get_muted_creators,
+    get_muted_creators_with_platform
 )
 from bot.platforms import PLATFORM_LABELS, PLATFORM_COLOURS, label as platform_label
 from bot.premium import is_premium, PREMIUM_SKU_ID
@@ -21,7 +22,7 @@ logging.getLogger("discord.ext.commands.bot").setLevel(logging.ERROR)
 
 AUTH_BASE_URL = os.getenv("AUTH_BASE_URL", "https://auth-production-4018.up.railway.app")
 BOT_OWNER_ID = 244962442008854540
-BOT_VERSION = "1.3.0"
+BOT_VERSION = "1.4.0"
 GITHUB_URL = "https://github.com/KumihoArts/CreatorAlert"
 SUPPORT_SERVER = "https://discord.gg/KVcu3HvHB3"
 DBL_TOKEN = os.getenv("DBL_TOKEN")
@@ -79,7 +80,7 @@ def _check_premium(interaction: discord.Interaction) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# /connect — platform select menu
+# /connect
 # ---------------------------------------------------------------------------
 
 @bot.tree.command(name="connect", description="Connect a Patreon or SubscribeStar account")
@@ -127,29 +128,20 @@ async def disconnect(interaction: discord.Interaction):
 
     connected = await get_all_user_platforms(interaction.user.id)
     if not connected:
-        await interaction.followup.send(
-            "❌ You don't have any accounts connected.", ephemeral=True
-        )
+        await interaction.followup.send("❌ You don't have any accounts connected.", ephemeral=True)
         return
 
     if len(connected) == 1:
-        # Only one platform — skip platform selection
         view = ConfirmDisconnectView(connected[0])
         plabel = platform_label(connected[0])
         await interaction.followup.send(
             f"Are you sure you want to disconnect your **{plabel}** account? "
             "This will stop all notifications from that platform and remove your stored data.",
-            view=view,
-            ephemeral=True
+            view=view, ephemeral=True
         )
     else:
-        # Multiple platforms — show selection
         view = DisconnectPlatformView(connected)
-        await interaction.followup.send(
-            "Which account would you like to disconnect?",
-            view=view,
-            ephemeral=True
-        )
+        await interaction.followup.send("Which account would you like to disconnect?", view=view, ephemeral=True)
 
 
 class DisconnectPlatformView(discord.ui.View):
@@ -235,6 +227,15 @@ async def status(interaction: discord.Interaction):
             value += f"\nCustom message: *{account['custom_message']}*"
         if premium and account.get("embed_colour"):
             value += f"\nEmbed colour: `{account['embed_colour']}`"
+        # Show creator channel info if this command is run in a server
+        if interaction.guild:
+            creator_ch = await get_creator_channels_for_guild(
+                interaction.guild.id, account["platform_user_id"], platform
+            )
+            if creator_ch:
+                value += f"\nAnnouncement channel: <#{creator_ch['channel_id']}>"
+                if creator_ch.get("ping_role_id"):
+                    value += f"\nPing role: <@&{creator_ch['ping_role_id']}>"
         embed.add_field(name=platform_label(platform), value=value, inline=False)
 
     embed.add_field(name="Premium", value="✅ Active" if premium else "❌ Not subscribed", inline=False)
@@ -262,18 +263,13 @@ async def setup(
 ):
     await interaction.response.defer(ephemeral=True)
 
-    # If platform not specified, check what's connected
     if platform is None:
         connected = await get_all_user_platforms(interaction.user.id)
         if not connected:
-            await interaction.followup.send(
-                "❌ You need to connect an account first. Use `/connect`.", ephemeral=True
-            )
+            await interaction.followup.send("❌ You need to connect an account first. Use `/connect`.", ephemeral=True)
             return
         if len(connected) > 1:
-            await interaction.followup.send(
-                "❌ You have multiple platforms connected. Please specify the `platform` option.", ephemeral=True
-            )
+            await interaction.followup.send("❌ You have multiple platforms connected. Please specify the `platform` option.", ephemeral=True)
             return
         platform_str = connected[0]
     else:
@@ -282,9 +278,7 @@ async def setup(
     account = await get_user(interaction.user.id, platform_str)
     if not account:
         plabel = platform_label(platform_str)
-        await interaction.followup.send(
-            f"❌ You don't have a {plabel} account connected. Use `/connect`.", ephemeral=True
-        )
+        await interaction.followup.send(f"❌ You don't have a {plabel} account connected. Use `/connect`.", ephemeral=True)
         return
 
     bot_perms = channel.permissions_for(interaction.guild.me)
@@ -335,14 +329,10 @@ async def pingrole(
     if platform is None:
         connected = await get_all_user_platforms(interaction.user.id)
         if not connected:
-            await interaction.followup.send(
-                "❌ You need to connect an account first. Use `/connect`.", ephemeral=True
-            )
+            await interaction.followup.send("❌ You need to connect an account first. Use `/connect`.", ephemeral=True)
             return
         if len(connected) > 1:
-            await interaction.followup.send(
-                "❌ You have multiple platforms connected. Please specify the `platform` option.", ephemeral=True
-            )
+            await interaction.followup.send("❌ You have multiple platforms connected. Please specify the `platform` option.", ephemeral=True)
             return
         platform_str = connected[0]
     else:
@@ -351,23 +341,17 @@ async def pingrole(
     account = await get_user(interaction.user.id, platform_str)
     if not account:
         plabel = platform_label(platform_str)
-        await interaction.followup.send(
-            f"❌ You don't have a {plabel} account connected. Use `/connect`.", ephemeral=True
-        )
+        await interaction.followup.send(f"❌ You don't have a {plabel} account connected. Use `/connect`.", ephemeral=True)
         return
 
     existing_channel = await get_creator_channel(interaction.guild.id, account["platform_user_id"], platform_str)
     if not existing_channel:
-        await interaction.followup.send(
-            "❌ You need to set up a creator channel first. Use `/setup` to designate one.", ephemeral=True
-        )
+        await interaction.followup.send("❌ You need to set up a creator channel first. Use `/setup` to designate one.", ephemeral=True)
         return
 
     if role is None:
         await set_creator_ping_role(interaction.guild.id, account["platform_user_id"], platform_str, None)
-        await interaction.followup.send(
-            "✅ Ping role cleared. Announcements will no longer ping a role.", ephemeral=True
-        )
+        await interaction.followup.send("✅ Ping role cleared. Announcements will no longer ping a role.", ephemeral=True)
         return
 
     if role.is_default() or role.name == "@everyone":
@@ -398,12 +382,9 @@ async def mute(interaction: discord.Interaction):
 
     connected = await get_all_user_platforms(interaction.user.id)
     if not connected:
-        await interaction.followup.send(
-            "❌ You need to connect an account first. Use `/connect`.", ephemeral=True
-        )
+        await interaction.followup.send("❌ You need to connect an account first. Use `/connect`.", ephemeral=True)
         return
 
-    # Build a list of (platform, membership) across all connected platforms
     all_available = []
     for platform in connected:
         account = await get_user(interaction.user.id, platform)
@@ -430,7 +411,7 @@ async def mute(interaction: discord.Interaction):
 
     options = [
         discord.SelectOption(
-            label=f"{m.get('vanity') or 'Unknown Creator'}",
+            label=m.get("vanity") or "Unknown Creator",
             value=f"{plat}:{m['campaign_id']}",
             description=f"{platform_label(plat)} · {m.get('url', '')[:80]}",
         )
@@ -440,8 +421,7 @@ async def mute(interaction: discord.Interaction):
     view = MuteSelectView(options)
     await interaction.followup.send(
         "Select a creator to mute. You will no longer receive notifications from them.",
-        view=view,
-        ephemeral=True
+        view=view, ephemeral=True
     )
 
 
@@ -456,8 +436,7 @@ class MuteSelectView(discord.ui.View):
         value = interaction.data["values"][0]
         platform, campaign_id = value.split(":", 1)
         creator_name = next(
-            (opt.label for opt in self.children[0].options if opt.value == value),
-            "That creator"
+            (opt.label for opt in self.children[0].options if opt.value == value), "That creator"
         )
         await mute_creator(interaction.user.id, platform, campaign_id)
         self.stop()
@@ -478,12 +457,10 @@ async def unmute(interaction: discord.Interaction):
     muted_list = await get_muted_creators_with_platform(interaction.user.id)
     if not muted_list:
         await interaction.followup.send(
-            "You have no muted creators. Use `/mute` to mute notifications from a creator.",
-            ephemeral=True
+            "You have no muted creators. Use `/mute` to mute notifications from a creator.", ephemeral=True
         )
         return
 
-    # Build name lookup from live memberships
     name_lookup = {}
     connected = await get_all_user_platforms(interaction.user.id)
     for platform in connected:
@@ -510,8 +487,7 @@ async def unmute(interaction: discord.Interaction):
     view = UnmuteSelectView(options)
     await interaction.followup.send(
         "Select a creator to unmute. Notifications will resume at the next poll.",
-        view=view,
-        ephemeral=True
+        view=view, ephemeral=True
     )
 
 
@@ -526,8 +502,7 @@ class UnmuteSelectView(discord.ui.View):
         value = interaction.data["values"][0]
         platform, campaign_id = value.split(":", 1)
         creator_name = next(
-            (opt.label for opt in self.children[0].options if opt.value == value),
-            "That creator"
+            (opt.label for opt in self.children[0].options if opt.value == value), "That creator"
         )
         await unmute_creator(interaction.user.id, platform, campaign_id)
         self.stop()
@@ -603,38 +578,27 @@ async def customize(
 ):
     await interaction.response.defer(ephemeral=True)
     if not _check_premium(interaction):
-        await interaction.followup.send(
-            "❌ This feature requires **CreatorAlert Premium**. Use `/premium` to subscribe.", ephemeral=True
-        )
+        await interaction.followup.send("❌ This feature requires **CreatorAlert Premium**. Use `/premium` to subscribe.", ephemeral=True)
         return
 
     if colour:
         colour = colour.strip()
         if not colour.startswith("#") or len(colour) != 7:
-            await interaction.followup.send(
-                "❌ Invalid colour format. Please use a hex code like `#ff6600`.", ephemeral=True
-            )
+            await interaction.followup.send("❌ Invalid colour format. Please use a hex code like `#ff6600`.", ephemeral=True)
             return
         try:
             int(colour[1:], 16)
         except ValueError:
-            await interaction.followup.send(
-                "❌ Invalid hex colour. Please use a format like `#ff6600`.", ephemeral=True
-            )
+            await interaction.followup.send("❌ Invalid hex colour. Please use a format like `#ff6600`.", ephemeral=True)
             return
 
     if message and len(message) > 200:
-        await interaction.followup.send(
-            "❌ Custom message must be 200 characters or fewer.", ephemeral=True
-        )
+        await interaction.followup.send("❌ Custom message must be 200 characters or fewer.", ephemeral=True)
         return
 
-    # Apply to specified platform, or all connected platforms
     connected = await get_all_user_platforms(interaction.user.id)
     if not connected:
-        await interaction.followup.send(
-            "❌ You need to connect an account first. Use `/connect`.", ephemeral=True
-        )
+        await interaction.followup.send("❌ You need to connect an account first. Use `/connect`.", ephemeral=True)
         return
 
     platforms_to_update = [platform.value] if platform else connected
@@ -765,16 +729,8 @@ async def help_cmd(interaction: discord.Interaction):
     embed.add_field(name="/connect", value="Link a Patreon or SubscribeStar account", inline=False)
     embed.add_field(name="/disconnect", value="Unlink a connected account", inline=False)
     embed.add_field(name="/status", value="Check your connected accounts and settings", inline=False)
-    embed.add_field(
-        name="/setup",
-        value="[Creator] Designate a channel for post announcements (requires Manage Server)",
-        inline=False
-    )
-    embed.add_field(
-        name="/pingrole",
-        value="[Creator] Set a role to ping with each announcement (requires Manage Server)",
-        inline=False
-    )
+    embed.add_field(name="/setup", value="[Creator] Designate a channel for post announcements (requires Manage Server)", inline=False)
+    embed.add_field(name="/pingrole", value="[Creator] Set a role to ping with each announcement (requires Manage Server)", inline=False)
     embed.add_field(name="/premium", value="View or subscribe to CreatorAlert Premium", inline=False)
     if premium:
         embed.add_field(name="/customize", value="[Premium] Set a custom embed colour and notification message", inline=False)
