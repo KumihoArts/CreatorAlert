@@ -22,14 +22,14 @@ logging.getLogger("discord.ext.commands.bot").setLevel(logging.ERROR)
 
 AUTH_BASE_URL = os.getenv("AUTH_BASE_URL", "https://auth-production-4018.up.railway.app")
 BOT_OWNER_ID = 244962442008854540
-BOT_VERSION = "1.4.0"
+BOT_VERSION = "1.5.0"
 GITHUB_URL = "https://github.com/KumihoArts/CreatorAlert"
 SUPPORT_SERVER = "https://discord.gg/KVcu3HvHB3"
 DBL_TOKEN = os.getenv("DBL_TOKEN")
 INVITE_PERMISSIONS = discord.Permissions(send_messages=True, embed_links=True, send_messages_in_threads=True)
 
 DBL_COMMANDS = [
-    {"name": "connect", "description": "Connect a Patreon or SubscribeStar account", "type": 1},
+    {"name": "connect", "description": "Connect a Patreon, SubscribeStar, or Gumroad account", "type": 1},
     {"name": "disconnect", "description": "Disconnect a connected account", "type": 1},
     {"name": "status", "description": "Check your connected accounts and notification settings", "type": 1},
     {"name": "setup", "description": "[Creator] Set a channel in your server for automatic post announcements", "type": 1},
@@ -83,7 +83,7 @@ def _check_premium(interaction: discord.Interaction) -> bool:
 # /connect
 # ---------------------------------------------------------------------------
 
-@bot.tree.command(name="connect", description="Connect a Patreon or SubscribeStar account")
+@bot.tree.command(name="connect", description="Connect a Patreon, SubscribeStar, or Gumroad account")
 async def connect(interaction: discord.Interaction):
     view = ConnectPlatformView()
     await interaction.response.send_message(
@@ -114,6 +114,16 @@ class ConnectPlatformView(discord.ui.View):
             title="Connect your SubscribeStar",
             description=f"Click the link below to connect your SubscribeStar account to CreatorAlert.\n\n[🔗 Connect SubscribeStar]({url})",
             color=discord.Color(PLATFORM_COLOURS["subscribestar"])
+        )
+        await interaction.response.edit_message(content=None, embed=embed, view=None)
+
+    @discord.ui.button(label="Gumroad", style=discord.ButtonStyle.primary, emoji="🛒")
+    async def connect_gumroad(self, interaction: discord.Interaction, button: discord.ui.Button):
+        url = f"{AUTH_BASE_URL}/connect/gumroad?discord_id={interaction.user.id}"
+        embed = discord.Embed(
+            title="Connect your Gumroad",
+            description=f"Click the link below to connect your Gumroad account to CreatorAlert.\n\n[🔗 Connect Gumroad]({url})\n\n> **Note:** Gumroad is creator-only — it announces new products to a channel in your server. There are no subscriber DMs for Gumroad.",
+            color=discord.Color(PLATFORM_COLOURS["gumroad"])
         )
         await interaction.response.edit_message(content=None, embed=embed, view=None)
 
@@ -202,7 +212,7 @@ async def status(interaction: discord.Interaction):
     if not connected:
         embed = discord.Embed(
             title="Connection Status",
-            description="❌ No accounts connected.\n\nUse `/connect` to link a Patreon or SubscribeStar account.",
+            description="❌ No accounts connected.\n\nUse `/connect` to link a Patreon, SubscribeStar, or Gumroad account.",
             color=discord.Color.red()
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
@@ -227,7 +237,6 @@ async def status(interaction: discord.Interaction):
             value += f"\nCustom message: *{account['custom_message']}*"
         if premium and account.get("embed_colour"):
             value += f"\nEmbed colour: `{account['embed_colour']}`"
-        # Show creator channel info if this command is run in a server
         if interaction.guild:
             creator_ch = await get_creator_channels_for_guild(
                 interaction.guild.id, account["platform_user_id"], platform
@@ -254,6 +263,7 @@ async def status(interaction: discord.Interaction):
 @app_commands.choices(platform=[
     app_commands.Choice(name="Patreon", value="patreon"),
     app_commands.Choice(name="SubscribeStar", value="subscribestar"),
+    app_commands.Choice(name="Gumroad", value="gumroad"),
 ])
 @app_commands.default_permissions(manage_guild=True)
 async def setup(
@@ -317,6 +327,7 @@ async def setup(
 @app_commands.choices(platform=[
     app_commands.Choice(name="Patreon", value="patreon"),
     app_commands.Choice(name="SubscribeStar", value="subscribestar"),
+    app_commands.Choice(name="Gumroad", value="gumroad"),
 ])
 @app_commands.default_permissions(manage_guild=True)
 async def pingrole(
@@ -569,6 +580,7 @@ class PremiumSubscribeView(discord.ui.View):
 @app_commands.choices(platform=[
     app_commands.Choice(name="Patreon", value="patreon"),
     app_commands.Choice(name="SubscribeStar", value="subscribestar"),
+    app_commands.Choice(name="Gumroad", value="gumroad"),
 ])
 async def customize(
     interaction: discord.Interaction,
@@ -633,7 +645,7 @@ async def invite(interaction: discord.Interaction):
     embed = discord.Embed(
         title="Invite CreatorAlert",
         description=f"[Click here to add CreatorAlert to your server]({invite_url})\n\n"
-                    "Once added, use `/connect` to link your Patreon or SubscribeStar account.",
+                    "Once added, use `/connect` to link your Patreon, SubscribeStar, or Gumroad account.",
         color=discord.Color.blurple()
     )
     embed.set_footer(text=f"Need help? Join the support server: {SUPPORT_SERVER}")
@@ -649,12 +661,12 @@ async def about(interaction: discord.Interaction):
     )
     embed = discord.Embed(
         title="CreatorAlert",
-        description="Never miss a post. CreatorAlert notifies you on Discord whenever a creator you support on Patreon or SubscribeStar publishes something new.",
+        description="Never miss a post. CreatorAlert notifies you on Discord whenever a creator you support on Patreon or SubscribeStar publishes something new, or when a Gumroad creator releases a new product.",
         color=discord.Color.orange()
     )
     embed.add_field(name="Version", value=BOT_VERSION, inline=True)
     embed.add_field(name="Polling interval", value="Every 3 min (Premium) / 10 min (Free)", inline=True)
-    embed.add_field(name="Platforms", value="Patreon · SubscribeStar", inline=True)
+    embed.add_field(name="Platforms", value="Patreon · SubscribeStar · Gumroad", inline=True)
     embed.add_field(
         name="Links",
         value=f"[Invite]({invite_url}) · [Support Server]({SUPPORT_SERVER}) · [GitHub]({GITHUB_URL}) · "
@@ -662,7 +674,7 @@ async def about(interaction: discord.Interaction):
               f"[Terms of Service]({GITHUB_URL}/blob/main/legal/TERMS_OF_SERVICE.md)",
         inline=False
     )
-    embed.set_footer(text="Built by KumihoArts · Not affiliated with Patreon, SubscribeStar, or Discord")
+    embed.set_footer(text="Built by KumihoArts · Not affiliated with Patreon, SubscribeStar, Gumroad, or Discord")
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
@@ -723,10 +735,10 @@ async def help_cmd(interaction: discord.Interaction):
     premium = _check_premium(interaction)
     embed = discord.Embed(
         title="CreatorAlert Help",
-        description="Get notified when creators you support on Patreon or SubscribeStar post new content.",
+        description="Get notified when creators you support on Patreon or SubscribeStar post new content, or when a Gumroad creator releases a new product.",
         color=discord.Color.blurple()
     )
-    embed.add_field(name="/connect", value="Link a Patreon or SubscribeStar account", inline=False)
+    embed.add_field(name="/connect", value="Link a Patreon, SubscribeStar, or Gumroad account", inline=False)
     embed.add_field(name="/disconnect", value="Unlink a connected account", inline=False)
     embed.add_field(name="/status", value="Check your connected accounts and settings", inline=False)
     embed.add_field(name="/setup", value="[Creator] Designate a channel for post announcements (requires Manage Server)", inline=False)
@@ -736,7 +748,7 @@ async def help_cmd(interaction: discord.Interaction):
         embed.add_field(name="/customize", value="[Premium] Set a custom embed colour and notification message", inline=False)
     embed.add_field(name="/mute", value="Mute notifications from a specific creator", inline=False)
     embed.add_field(name="/unmute", value="Restore notifications from a muted creator", inline=False)
-    embed.add_field(name="/invite", value="Get the link to invite CreatorAlert to your server", inline=False)
+    embed.add_field(name="/invite", value="Get the bot's invite link", inline=False)
     embed.add_field(name="/about", value="About CreatorAlert", inline=False)
     embed.set_footer(text=f"Need help? Join the support server: {SUPPORT_SERVER}")
     await interaction.response.send_message(embed=embed, ephemeral=True)
