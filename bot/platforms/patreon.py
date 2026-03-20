@@ -1,8 +1,27 @@
 import aiohttp
 import os
+import re
 
 PATREON_API_BASE = "https://www.patreon.com/api/oauth2/v2"
 PATREON_TOKEN_URL = "https://www.patreon.com/api/oauth2/token"
+
+EXCERPT_MAX_CHARS = 300
+
+
+def _extract_excerpt(html: str) -> str:
+    """
+    Strip HTML tags from Patreon post content and return a plain text excerpt
+    truncated to EXCERPT_MAX_CHARS characters.
+    """
+    if not html:
+        return ""
+    # Remove HTML tags
+    text = re.sub(r"<[^>]+>", "", html)
+    # Collapse whitespace
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > EXCERPT_MAX_CHARS:
+        text = text[:EXCERPT_MAX_CHARS].rsplit(" ", 1)[0] + "…"
+    return text
 
 
 async def refresh_access_token(refresh_token: str) -> dict | None:
@@ -106,7 +125,7 @@ async def get_recent_posts(access_token: str, campaign_id: str, limit: int = 10)
     """
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {
-        "fields[post]": "title,url,published_at,content",
+        "fields[post]": "title,url,published_at,content,is_public",
         "page[count]": limit,
         "sort": "-published_at",
     }
@@ -131,10 +150,14 @@ async def get_recent_posts(access_token: str, campaign_id: str, limit: int = 10)
         # Patreon sometimes returns relative URLs — normalise to absolute
         if raw_url and not raw_url.startswith("http"):
             raw_url = f"https://www.patreon.com{raw_url}"
+        is_public = attrs.get("is_public", False)
+        excerpt = _extract_excerpt(attrs.get("content", "")) if is_public else ""
         posts.append({
             "id": item["id"],
             "title": attrs.get("title") or "New Post",
             "url": raw_url,
             "published_at": attrs.get("published_at", ""),
+            "is_public": is_public,
+            "excerpt": excerpt,
         })
     return posts
