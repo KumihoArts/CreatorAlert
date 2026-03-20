@@ -15,25 +15,23 @@ async def init_db():
     async with pool.acquire() as conn:
 
         # -----------------------------------------------------------------------
-        # connected_accounts — one row per (discord_id, platform) combination.
-        # Users can connect Patreon and SubscribeStar independently.
+        # connected_accounts
         # -----------------------------------------------------------------------
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS connected_accounts (
-                discord_id      BIGINT NOT NULL,
-                platform        TEXT NOT NULL DEFAULT 'patreon',
+                discord_id       BIGINT NOT NULL,
+                platform         TEXT NOT NULL DEFAULT 'patreon',
                 platform_user_id TEXT NOT NULL,
-                access_token    TEXT NOT NULL,
-                refresh_token   TEXT NOT NULL,
-                token_expires   TIMESTAMPTZ,
-                embed_colour    TEXT,
-                custom_message  TEXT,
-                connected_at    TIMESTAMPTZ DEFAULT NOW(),
+                access_token     TEXT NOT NULL,
+                refresh_token    TEXT NOT NULL,
+                token_expires    TIMESTAMPTZ,
+                embed_colour     TEXT,
+                custom_message   TEXT,
+                connected_at     TIMESTAMPTZ DEFAULT NOW(),
                 PRIMARY KEY (discord_id, platform)
             )
         """)
 
-        # Migrate old patreon_users table if it still exists
         has_old_table = await conn.fetchval("""
             SELECT EXISTS (
                 SELECT 1 FROM information_schema.tables
@@ -57,15 +55,15 @@ async def init_db():
             print("patreon_users migration complete.")
 
         # -----------------------------------------------------------------------
-        # creator_channels — one row per (guild_id, platform_user_id, platform).
+        # creator_channels
         # -----------------------------------------------------------------------
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS creator_channels (
-                guild_id            BIGINT NOT NULL,
-                channel_id          BIGINT NOT NULL,
-                platform_user_id    TEXT NOT NULL,
-                platform            TEXT NOT NULL DEFAULT 'patreon',
-                ping_role_id        BIGINT,
+                guild_id         BIGINT NOT NULL,
+                channel_id       BIGINT NOT NULL,
+                platform_user_id TEXT NOT NULL,
+                platform         TEXT NOT NULL DEFAULT 'patreon',
+                ping_role_id     BIGINT,
                 PRIMARY KEY (guild_id, platform_user_id, platform)
             )
         """)
@@ -79,8 +77,10 @@ async def init_db():
         """)
         if not has_platform_col:
             print("Migrating creator_channels schema...")
-            await conn.execute("ALTER TABLE creator_channels ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'patreon'")
-            # Rename patreon_user_id to platform_user_id if needed
+            await conn.execute("""
+                ALTER TABLE creator_channels
+                ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'patreon'
+            """)
             has_old_col = await conn.fetchval("""
                 SELECT EXISTS (
                     SELECT 1 FROM information_schema.columns
@@ -88,12 +88,23 @@ async def init_db():
                 )
             """)
             if has_old_col:
-                await conn.execute("ALTER TABLE creator_channels RENAME COLUMN patreon_user_id TO platform_user_id")
+                await conn.execute("""
+                    ALTER TABLE creator_channels
+                    RENAME COLUMN patreon_user_id TO platform_user_id
+                """)
+            # Drop old PK and recreate with platform included
+            await conn.execute("""
+                ALTER TABLE creator_channels
+                DROP CONSTRAINT IF EXISTS creator_channels_pkey
+            """)
+            await conn.execute("""
+                ALTER TABLE creator_channels
+                ADD PRIMARY KEY (guild_id, platform_user_id, platform)
+            """)
             print("creator_channels migration complete.")
 
         # -----------------------------------------------------------------------
-        # seen_posts — per (discord_id, post_id). Platform-agnostic since post
-        # IDs are distinct strings per platform (we prefix them if needed).
+        # seen_posts
         # -----------------------------------------------------------------------
         has_seen_posts = await conn.fetchval("""
             SELECT EXISTS (
@@ -113,9 +124,9 @@ async def init_db():
                 await conn.execute("DROP TABLE seen_posts")
                 await conn.execute("""
                     CREATE TABLE seen_posts (
-                        discord_id  BIGINT NOT NULL,
-                        post_id     TEXT NOT NULL,
-                        seen_at     TIMESTAMPTZ DEFAULT NOW(),
+                        discord_id BIGINT NOT NULL,
+                        post_id    TEXT NOT NULL,
+                        seen_at    TIMESTAMPTZ DEFAULT NOW(),
                         PRIMARY KEY (discord_id, post_id)
                     )
                 """)
@@ -123,27 +134,26 @@ async def init_db():
         else:
             await conn.execute("""
                 CREATE TABLE seen_posts (
-                    discord_id  BIGINT NOT NULL,
-                    post_id     TEXT NOT NULL,
-                    seen_at     TIMESTAMPTZ DEFAULT NOW(),
+                    discord_id BIGINT NOT NULL,
+                    post_id    TEXT NOT NULL,
+                    seen_at    TIMESTAMPTZ DEFAULT NOW(),
                     PRIMARY KEY (discord_id, post_id)
                 )
             """)
 
         # -----------------------------------------------------------------------
-        # muted_creators — per (discord_id, platform, campaign_id).
+        # muted_creators
         # -----------------------------------------------------------------------
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS muted_creators (
-                discord_id      BIGINT NOT NULL,
-                platform        TEXT NOT NULL DEFAULT 'patreon',
-                campaign_id     TEXT NOT NULL,
-                muted_at        TIMESTAMPTZ DEFAULT NOW(),
+                discord_id  BIGINT NOT NULL,
+                platform    TEXT NOT NULL DEFAULT 'patreon',
+                campaign_id TEXT NOT NULL,
+                muted_at    TIMESTAMPTZ DEFAULT NOW(),
                 PRIMARY KEY (discord_id, platform, campaign_id)
             )
         """)
 
-        # Migrate old muted_creators schema (no platform column)
         muted_has_platform = await conn.fetchval("""
             SELECT EXISTS (
                 SELECT 1 FROM information_schema.columns
@@ -152,7 +162,18 @@ async def init_db():
         """)
         if not muted_has_platform:
             print("Migrating muted_creators schema...")
-            await conn.execute("ALTER TABLE muted_creators ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'patreon'")
+            await conn.execute("""
+                ALTER TABLE muted_creators
+                ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'patreon'
+            """)
+            await conn.execute("""
+                ALTER TABLE muted_creators
+                DROP CONSTRAINT IF EXISTS muted_creators_pkey
+            """)
+            await conn.execute("""
+                ALTER TABLE muted_creators
+                ADD PRIMARY KEY (discord_id, platform, campaign_id)
+            """)
             print("muted_creators migration complete.")
 
     print("Database initialised.")
@@ -163,7 +184,6 @@ async def init_db():
 # ---------------------------------------------------------------------------
 
 async def get_user(discord_id: int, platform: str = "patreon") -> dict | None:
-    """Get a user's connected account for a specific platform."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -174,7 +194,6 @@ async def get_user(discord_id: int, platform: str = "patreon") -> dict | None:
 
 
 async def get_all_user_platforms(discord_id: int) -> list[str]:
-    """Get all platforms a user has connected."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
@@ -184,7 +203,6 @@ async def get_all_user_platforms(discord_id: int) -> list[str]:
 
 
 async def get_user_by_platform_id(platform_user_id: str, platform: str) -> dict | None:
-    """Look up a Discord user by their platform user ID and platform."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -195,11 +213,6 @@ async def get_user_by_platform_id(platform_user_id: str, platform: str) -> dict 
 
 
 async def delete_user(discord_id: int, platform: str = None):
-    """
-    Delete a user's connected account.
-    If platform is specified, only that platform is deleted.
-    If platform is None, all platforms are deleted.
-    """
     pool = await get_pool()
     async with pool.acquire() as conn:
         if platform:
@@ -244,7 +257,6 @@ async def set_premium_style(discord_id: int, platform: str, embed_colour: str | 
 
 
 async def get_all_accounts() -> list[dict]:
-    """Get all connected accounts across all platforms."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch("SELECT * FROM connected_accounts")
@@ -256,7 +268,6 @@ async def get_all_accounts() -> list[dict]:
 # ---------------------------------------------------------------------------
 
 async def mark_post_seen(discord_id: int, post_id: str):
-    """Mark a post as seen for a specific Discord user."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute("""
@@ -267,7 +278,6 @@ async def mark_post_seen(discord_id: int, post_id: str):
 
 
 async def is_post_seen(discord_id: int, post_id: str) -> bool:
-    """Check if a specific Discord user has already been notified about this post."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -301,7 +311,6 @@ async def unmute_creator(discord_id: int, platform: str, campaign_id: str):
 
 
 async def get_muted_creators(discord_id: int, platform: str = None) -> list[str]:
-    """Return muted campaign IDs for a user. Optionally filter by platform."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         if platform:
@@ -317,7 +326,6 @@ async def get_muted_creators(discord_id: int, platform: str = None) -> list[str]
 
 
 async def get_muted_creators_with_platform(discord_id: int) -> list[tuple[str, str]]:
-    """Return all (platform, campaign_id) tuples for a user's muted creators."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
@@ -362,7 +370,6 @@ async def get_creator_channel(guild_id: int, platform_user_id: str, platform: st
 
 
 async def get_creator_channels_for_user(platform_user_id: str, platform: str) -> list[tuple[int, int, int | None]]:
-    """Returns all (guild_id, channel_id, ping_role_id) rows for a creator."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
