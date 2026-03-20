@@ -46,18 +46,14 @@ async def init_db():
             ADD COLUMN IF NOT EXISTS ping_role_id BIGINT
         """)
 
-        # Check what schema seen_posts currently has and migrate if needed.
-        # Old schema: PRIMARY KEY (post_id) — breaks per-user tracking.
-        # New schema: PRIMARY KEY (discord_id, post_id) — correct.
+        # seen_posts migration check
         has_seen_posts = await conn.fetchval("""
             SELECT EXISTS (
                 SELECT 1 FROM information_schema.tables
                 WHERE table_name = 'seen_posts'
             )
         """)
-
         if has_seen_posts:
-            # Check if discord_id column exists and is part of the primary key
             discord_id_col = await conn.fetchval("""
                 SELECT EXISTS (
                     SELECT 1 FROM information_schema.columns
@@ -65,8 +61,6 @@ async def init_db():
                 )
             """)
             if not discord_id_col:
-                # Old schema — drop and recreate with correct schema
-                # Old rows are useless (no per-user tracking) so dropping is safe
                 print("Migrating seen_posts table to per-user schema...")
                 await conn.execute("DROP TABLE seen_posts")
                 await conn.execute("""
@@ -87,6 +81,16 @@ async def init_db():
                     PRIMARY KEY (discord_id, post_id)
                 )
             """)
+
+        # Muted creators — per user, per campaign
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS muted_creators (
+                discord_id      BIGINT NOT NULL,
+                campaign_id     TEXT NOT NULL,
+                muted_at        TIMESTAMPTZ DEFAULT NOW(),
+                PRIMARY KEY (discord_id, campaign_id)
+            )
+        """)
 
     print("Database initialised.")
 
@@ -118,6 +122,9 @@ async def delete_user(discord_id: int):
         )
         await conn.execute(
             "DELETE FROM seen_posts WHERE discord_id = $1", discord_id
+        )
+        await conn.execute(
+            "DELETE FROM muted_creators WHERE discord_id = $1", discord_id
         )
 
 
@@ -166,6 +173,48 @@ async def is_post_seen(discord_id: int, post_id: str) -> bool:
         row = await conn.fetchrow(
             "SELECT 1 FROM seen_posts WHERE discord_id = $1 AND post_id = $2",
             discord_id, post_id
+        )
+        return row is not None
+
+
+async def mute_creator(discord_id: int, campaign_id: str):
+    """Mute notifications from a specific creator for a user."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO muted_creators (discord_id, campaign_id)
+            VALUES ($1, $2)
+            ON CONFLICT (discord_id, campaign_id) DO NOTHING
+        """, discord_id, campaign_id)
+
+
+async def unmute_creator(discord_id: int, campaign_id: str):
+    """Unmute notifications from a specific creator for a user."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            DELETE FROM muted_creators
+            WHERE discord_id = $1 AND campaign_id = $2
+        """, discord_id, campaign_id)
+
+
+async def get_muted_creators(discord_id: int) -> list[str]:
+    """Return a list of muted campaign IDs for a user."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT campaign_id FROM muted_creators WHERE discord_id = $1", discord_id
+        )
+        return [r["campaign_id"] for r in rows]
+
+
+async def is_muted(discord_id: int, campaign_id: str) -> bool:
+    """Check if a user has muted a specific creator."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT 1 FROM muted_creators WHERE discord_id = $1 AND campaign_id = $2",
+            discord_id, campaign_id
         )
         return row is not None
 
