@@ -83,22 +83,12 @@ def error_page(message: str) -> tuple:
     """, 500
 
 # ---------------------------------------------------------------------------
-# Health / debug
+# Health check
 # ---------------------------------------------------------------------------
 
 @app.route("/health")
 def health():
     return jsonify({"status": "ok"}), 200
-
-
-@app.route("/debug")
-def debug():
-    """Temporary: shows what redirect URIs are loaded. Remove before production."""
-    return jsonify({
-        "PATREON_REDIRECT_URI": PATREON_REDIRECT_URI,
-        "PATREON_CLIENT_ID": PATREON_CLIENT_ID[:8] + "..." if PATREON_CLIENT_ID else None,
-        "SUBSCRIBESTAR_REDIRECT_URI": SUBSCRIBESTAR_REDIRECT_URI,
-    })
 
 # ---------------------------------------------------------------------------
 # Patreon OAuth
