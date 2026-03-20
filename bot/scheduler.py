@@ -36,7 +36,6 @@ async def _polling_loop(bot: discord.Client):
 
 async def _cleanup_loop():
     """Runs once every 24 hours to prune old seen_posts rows."""
-    # Offset cleanup so it doesn't fire immediately on startup
     await asyncio.sleep(3600)
     while True:
         try:
@@ -85,6 +84,19 @@ async def _get_own_campaign(client, access_token: str) -> dict | None:
     if hasattr(client, "get_own_campaign"):
         return await client.get_own_campaign(access_token)
     return None
+
+
+def _build_embed_description(post: dict) -> str:
+    """
+    Build the embed description from a post dict.
+    Always includes the bold title. Appends a plain text excerpt on a new
+    line if the post is public and has content.
+    """
+    desc = f"**{post['title']}**"
+    excerpt = post.get("excerpt", "")
+    if excerpt:
+        desc += f"\n\n{excerpt}"
+    return desc
 
 
 async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
@@ -161,7 +173,7 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
 
                         embed = discord.Embed(
                             title=f"📬 New post from {creator_name}",
-                            description=f"**{post['title']}**",
+                            description=_build_embed_description(post),
                             url=post["url"],
                             color=colour
                         )
@@ -211,7 +223,7 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
 
                 embed = discord.Embed(
                     title=f"📬 New post from {creator_name}",
-                    description=f"**{post['title']}**",
+                    description=_build_embed_description(post),
                     url=post["url"],
                     color=colour
                 )
