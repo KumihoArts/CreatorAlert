@@ -107,12 +107,19 @@ class ConnectPlatformView(discord.ui.View):
         )
         await interaction.response.edit_message(content=None, embed=embed, view=None)
 
+
     @discord.ui.button(label="SubscribeStar", style=discord.ButtonStyle.primary, emoji="⭐")
     async def connect_subscribestar(self, interaction: discord.Interaction, button: discord.ui.Button):
         url = f"{AUTH_BASE_URL}/connect/subscribestar?discord_id={interaction.user.id}"
         embed = discord.Embed(
             title="Connect your SubscribeStar",
-            description=f"Click the link below to connect your SubscribeStar account to CreatorAlert.\n\n[🔗 Connect SubscribeStar]({url})",
+            description=(
+                f"Click the link below to connect your SubscribeStar account to CreatorAlert.\n\n"
+                f"[🔗 Connect SubscribeStar]({url})\n\n"
+                f"> ⚠️ **Note:** SubscribeStar's API does not currently expose post content, "
+                f"so post notifications are not available for SubscribeStar at this time. "
+                f"Your account will be saved and notifications enabled automatically if this changes."
+            ),
             color=discord.Color(PLATFORM_COLOURS["subscribestar"])
         )
         await interaction.response.edit_message(content=None, embed=embed, view=None)
