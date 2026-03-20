@@ -58,13 +58,15 @@ async def get_memberships(access_token: str) -> list[dict] | None:
     Returns a list of dicts with campaign_id, vanity, and url.
     Returns None if the token is invalid/revoked (401).
     """
+    # Use content_provider based on SubscribeStar's schema
+    # (UserSubscription has content_provider, not star)
     query = """
     {
         user {
             subscriptions {
                 edges {
                     node {
-                        star {
+                        content_provider {
                             id
                             name
                             star_page
@@ -79,15 +81,21 @@ async def get_memberships(access_token: str) -> list[dict] | None:
     if data is None:
         return None  # 401 — token invalid
 
+    # Log raw response during development to verify schema
+    if data.get("errors"):
+        print(f"[subscribestar] get_memberships errors: {data['errors']}")
+        # Fall back to returning empty list so bot doesn't break
+        return []
+
     memberships = []
     try:
         edges = data["data"]["user"]["subscriptions"]["edges"]
         for edge in edges:
-            star = edge["node"]["star"]
+            cp = edge["node"]["content_provider"]
             memberships.append({
-                "campaign_id": str(star["id"]),
-                "vanity": star.get("name", "Unknown"),
-                "url": star.get("star_page", ""),
+                "campaign_id": str(cp["id"]),
+                "vanity": cp.get("name", "Unknown"),
+                "url": cp.get("star_page", ""),
             })
     except (KeyError, TypeError) as e:
         print(f"[subscribestar] Failed to parse memberships: {e} | data: {data}")
@@ -122,6 +130,10 @@ async def get_recent_posts(access_token: str, campaign_id: str, limit: int = 10)
     if data is None:
         return None  # 401 — token invalid
 
+    if data.get("errors"):
+        print(f"[subscribestar] get_recent_posts errors: {data['errors']}")
+        return []
+
     posts = []
     try:
         edges = data["data"]["star"]["posts"]["edges"]
@@ -132,6 +144,8 @@ async def get_recent_posts(access_token: str, campaign_id: str, limit: int = 10)
                 "title": node.get("title") or "New Post",
                 "url": node.get("url", ""),
                 "published_at": node.get("created_at", ""),
+                "excerpt": "",
+                "is_public": False,
             })
     except (KeyError, TypeError) as e:
         print(f"[subscribestar] Failed to parse posts for star {campaign_id}: {e} | data: {data}")
