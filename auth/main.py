@@ -33,6 +33,16 @@ SUBSCRIBESTAR_AUTH_URL = "https://www.subscribestar.com/oauth2/authorize"
 SUBSCRIBESTAR_TOKEN_URL = "https://www.subscribestar.com/oauth2/token"
 SUBSCRIBESTAR_API_URL = "https://www.subscribestar.com/api/graphql/v1"
 
+# ---------------------------------------------------------------------------
+# Gumroad config
+# ---------------------------------------------------------------------------
+GUMROAD_CLIENT_ID = os.getenv("GUMROAD_CLIENT_ID")
+GUMROAD_CLIENT_SECRET = os.getenv("GUMROAD_CLIENT_SECRET")
+GUMROAD_REDIRECT_URI = os.getenv("GUMROAD_REDIRECT_URI")
+GUMROAD_AUTH_URL = "https://gumroad.com/oauth/authorize"
+GUMROAD_TOKEN_URL = "https://api.gumroad.com/oauth/token"
+GUMROAD_USER_URL = "https://api.gumroad.com/v2/user"
+
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 # ---------------------------------------------------------------------------
@@ -227,6 +237,72 @@ def callback_subscribestar():
 
     asyncio.run(save_account(int(discord_id), "subscribestar", platform_user_id, access_token, refresh_token))
     return success_page("SubscribeStar", account_name), 200
+
+
+# ---------------------------------------------------------------------------
+# Gumroad OAuth
+# ---------------------------------------------------------------------------
+
+@app.route("/connect/gumroad")
+def connect_gumroad():
+    discord_id = request.args.get("discord_id")
+    if not discord_id:
+        return "Missing discord_id parameter.", 400
+
+    params = {
+        "client_id": GUMROAD_CLIENT_ID,
+        "redirect_uri": GUMROAD_REDIRECT_URI,
+        "scope": "view_profile",
+        "state": discord_id,
+    }
+    return redirect(f"{GUMROAD_AUTH_URL}?{urlencode(params)}")
+
+
+@app.route("/callback/gumroad")
+def callback_gumroad():
+    code = request.args.get("code")
+    discord_id = request.args.get("state")
+    error = request.args.get("error")
+
+    if error:
+        return f"Authorization cancelled or failed: {error}", 400
+    if not code or not discord_id:
+        return "Missing code or state parameter.", 400
+
+    token_response = requests.post(GUMROAD_TOKEN_URL, data={
+        "code": code,
+        "grant_type": "authorization_code",
+        "client_id": GUMROAD_CLIENT_ID,
+        "client_secret": GUMROAD_CLIENT_SECRET,
+        "redirect_uri": GUMROAD_REDIRECT_URI,
+    })
+
+    if token_response.status_code != 200:
+        return error_page(f"Token exchange failed: {token_response.text}")
+
+    token_data = token_response.json()
+    access_token = token_data.get("access_token")
+    # Gumroad tokens don't expire — no refresh token
+    refresh_token = token_data.get("refresh_token", "")
+
+    identity_response = requests.get(
+        GUMROAD_USER_URL,
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+
+    if identity_response.status_code != 200:
+        return error_page(f"Failed to fetch Gumroad identity: {identity_response.text}")
+
+    identity_data = identity_response.json()
+    user = identity_data.get("user", {})
+    platform_user_id = user.get("user_id")
+    account_name = user.get("name") or user.get("email", "Unknown")
+
+    if not platform_user_id:
+        return error_page("Could not retrieve Gumroad user ID.")
+
+    asyncio.run(save_account(int(discord_id), "gumroad", platform_user_id, access_token, refresh_token))
+    return success_page("Gumroad", account_name), 200
 
 
 # ---------------------------------------------------------------------------

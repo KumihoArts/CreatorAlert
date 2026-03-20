@@ -9,21 +9,24 @@ Membership dicts must contain: campaign_id, vanity, url
 Post dicts must contain: id, title, url, published_at
 """
 
-from bot.platforms import patreon, subscribestar
+from bot.platforms import patreon, subscribestar, gumroad
 
 PLATFORMS = {
     "patreon": patreon,
     "subscribestar": subscribestar,
+    "gumroad": gumroad,
 }
 
 PLATFORM_LABELS = {
     "patreon": "Patreon",
     "subscribestar": "SubscribeStar",
+    "gumroad": "Gumroad",
 }
 
 PLATFORM_COLOURS = {
-    "patreon": 0xF96854,   # Patreon orange
+    "patreon": 0xF96854,    # Patreon orange
     "subscribestar": 0x47B5FF,  # SubscribeStar blue
+    "gumroad": 0x36A9AE,    # Gumroad teal
 }
 
 
