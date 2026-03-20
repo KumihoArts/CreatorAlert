@@ -3,7 +3,8 @@ import discord
 
 from bot.db import (
     get_all_users, is_post_seen, mark_post_seen, update_tokens,
-    delete_user, get_creator_channels_for_patreon_user, get_user_by_patreon_id
+    delete_user, get_creator_channels_for_patreon_user, get_user_by_patreon_id,
+    is_muted
 )
 from bot.patreon import get_memberships, get_recent_posts, refresh_access_token
 from bot.premium import PREMIUM_BYPASS_IDS
@@ -110,12 +111,15 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
             creator_name = membership.get("vanity") or "A creator"
             creator_url = membership.get("url", "")
 
+            # Skip muted creators entirely — no DM, no seen_posts entry
+            if await is_muted(discord_id, campaign_id):
+                continue
+
             posts = await get_recent_posts(access_token, campaign_id)
             if posts is None:
                 continue
 
-            # Check if the campaign owner has a CreatorAlert account.
-            # Used to skip subscriber DM when the user IS the campaign owner.
+            # Check if this user is the campaign owner — skip subscriber DM if so
             creator_account = await get_user_by_patreon_id(campaign_id)
             user_is_campaign_owner = (
                 creator_account is not None and
@@ -151,8 +155,6 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
 
                 # -----------------------------------------------------------
                 # CREATOR MODE — post to server channels set via /setup
-                # Uses the campaign_id to look up creator channels, since
-                # Patreon campaign IDs are distinct from user IDs
                 # -----------------------------------------------------------
                 creator_channels = await get_creator_channels_for_patreon_user(
                     user["patreon_user_id"]

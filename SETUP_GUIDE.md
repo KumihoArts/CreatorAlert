@@ -35,10 +35,21 @@ Run `/status` at any time to see:
 - Which Patreon account is connected
 - When you connected
 - Whether you have Premium
+- How many creators you have muted, if any
+
+### Muting a creator
+
+If you want to stop receiving notifications from a specific creator without disconnecting your account, use `/mute`. You'll see a dropdown menu of all the creators you currently support — select one to mute them. You can mute as many as you like.
+
+While a creator is muted, their posts are completely skipped — no DM is sent, and no posts are marked as seen. This means if you unmute them later, you won't have missed anything; you'll still be notified about posts you didn't see while they were muted.
+
+### Unmuting a creator
+
+Run `/unmute` to restore notifications from a muted creator. You'll see a dropdown of your currently muted creators — select one to unmute them. Notifications will resume at the next polling cycle.
 
 ### Disconnecting
 
-Run `/disconnect` if you want to unlink your account and stop notifications. You'll be asked to confirm before anything is deleted.
+Run `/disconnect` if you want to unlink your account and stop all notifications. You'll be asked to confirm before anything is deleted. This also clears all your muted creators.
 
 ---
 
@@ -124,6 +135,8 @@ To customise your colour and message after subscribing, use `/customize`. For ex
 | `/pingrole` | Creators (Manage Server) | Sets a role to ping with each announcement |
 | `/premium` | Everyone | Shows Premium status and subscribe button |
 | `/customize` | Premium subscribers | Sets a custom embed colour and notification message |
+| `/mute` | Everyone | Mutes notifications from a specific creator |
+| `/unmute` | Everyone | Restores notifications from a muted creator |
 | `/invite` | Everyone | Gets the bot's invite link |
 | `/about` | Everyone | Shows bot info and links |
 | `/help` | Everyone | Shows a summary of available commands |
@@ -135,8 +148,11 @@ To customise your colour and message after subscribing, use `/customize`. For ex
 **I ran `/connect` but didn't get a DM.**
 Make sure your DMs are open for the server where you ran the command. In Discord, go to the server settings and enable "Allow direct messages from server members."
 
-**I'm not receiving notifications.**
-Run `/status` to confirm your account is connected. If it is, the bot may have just checked recently — it polls every 10 minutes (3 for Premium). If you've been waiting longer than that, join the support server and we'll take a look.
+**I'm not receiving notifications from a creator I support.**
+First check if you have them muted — run `/status` to see your mute count, or try `/unmute` to see your muted list. If they're not muted, run `/status` to confirm your account is connected. It may also just be that the bot hasn't polled yet — it checks every 10 minutes (3 for Premium).
+
+**I'm not receiving any notifications at all.**
+Run `/status` to confirm your account is connected. If it is and you've been waiting longer than 10 minutes, join the support server and we'll take a look.
 
 **The bot says it can't send messages in my channel.**
 Go to your channel settings → Permissions and make sure CreatorAlert has `Send Messages` and `Embed Links` enabled.

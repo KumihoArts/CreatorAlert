@@ -7,7 +7,7 @@ Never miss a Patreon post. CreatorAlert is a Discord bot that connects to your P
 ## How it works
 
 ### For supporters
-Connect your Patreon account once and CreatorAlert will DM you whenever a creator you back on Patreon publishes something new. Notifications are private — only you see them.
+Connect your Patreon account once and CreatorAlert will DM you whenever a creator you back on Patreon publishes something new. Notifications are private — only you see them. You can mute individual creators at any time without disconnecting your account.
 
 ### For creators
 Add the bot to your Discord server, connect your Patreon, and designate a channel for post announcements. Every time you publish on Patreon, CreatorAlert posts it to that channel automatically. Optionally set a role to ping with each announcement.
@@ -28,6 +28,8 @@ The two modes are completely independent and work alongside each other. If you'r
 | `/pingrole` | [Creator] Set a role to ping with each announcement (requires Manage Server) |
 | `/premium` | View or subscribe to CreatorAlert Premium |
 | `/customize` | [Premium] Set a custom embed colour and notification message |
+| `/mute` | Mute notifications from a specific creator |
+| `/unmute` | Restore notifications from a muted creator |
 | `/invite` | Get the bot invite link |
 | `/about` | About CreatorAlert |
 | `/help` | Show all available commands |

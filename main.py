@@ -8,7 +8,8 @@ import os
 
 from bot.db import (
     init_db, get_user, delete_user, set_premium_style,
-    set_creator_channel, get_creator_channel, set_creator_ping_role
+    set_creator_channel, get_creator_channel, set_creator_ping_role,
+    mute_creator, unmute_creator, get_muted_creators
 )
 from bot.premium import is_premium, PREMIUM_SKU_ID
 from bot.scheduler import start_scheduler
@@ -19,7 +20,7 @@ logging.getLogger("discord.ext.commands.bot").setLevel(logging.ERROR)
 
 AUTH_BASE_URL = os.getenv("AUTH_BASE_URL", "https://auth-production-4018.up.railway.app")
 BOT_OWNER_ID = 244962442008854540
-BOT_VERSION = "1.1.0"
+BOT_VERSION = "1.2.0"
 GITHUB_URL = "https://github.com/KumihoArts/CreatorAlert"
 SUPPORT_SERVER = "https://discord.gg/KVcu3HvHB3"
 DBL_TOKEN = os.getenv("DBL_TOKEN")
@@ -33,6 +34,8 @@ DBL_COMMANDS = [
     {"name": "pingrole", "description": "[Creator] Set a role to ping when new posts are announced in your server", "type": 1},
     {"name": "premium", "description": "View or subscribe to CreatorAlert Premium", "type": 1},
     {"name": "customize", "description": "[Premium] Set a custom embed colour and notification message", "type": 1},
+    {"name": "mute", "description": "Mute notifications from a specific creator", "type": 1},
+    {"name": "unmute", "description": "Restore notifications from a muted creator", "type": 1},
     {"name": "invite", "description": "Get the link to invite CreatorAlert to your server", "type": 1},
     {"name": "about", "description": "About CreatorAlert", "type": 1},
     {"name": "help", "description": "Show all available commands", "type": 1},
@@ -161,6 +164,10 @@ async def status(interaction: discord.Interaction):
             if colour:
                 embed.add_field(name="Embed colour", value=colour, inline=True)
 
+        muted = await get_muted_creators(interaction.user.id)
+        if muted:
+            embed.add_field(name="Muted creators", value=f"{len(muted)} muted — use `/unmute` to restore", inline=False)
+
     await interaction.followup.send(embed=embed, ephemeral=True)
 
 
@@ -245,6 +252,137 @@ async def pingrole(interaction: discord.Interaction, role: discord.Role = None):
         f"✅ Ping role set to {role.mention}. This role will be pinged with each new post announcement.",
         ephemeral=True
     )
+
+
+@bot.tree.command(name="mute", description="Mute notifications from a specific creator")
+async def mute(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
+    user = await get_user(interaction.user.id)
+    if not user:
+        await interaction.followup.send(
+            "❌ You need to connect your Patreon account first. Use `/connect`.", ephemeral=True
+        )
+        return
+
+    from bot.patreon import get_memberships
+    memberships = await get_memberships(user["access_token"])
+    if not memberships:
+        await interaction.followup.send(
+            "❌ No creators found. Make sure you are actively supporting creators on Patreon.", ephemeral=True
+        )
+        return
+
+    muted = await get_muted_creators(interaction.user.id)
+    available = [m for m in memberships if m["campaign_id"] not in muted]
+
+    if not available:
+        await interaction.followup.send(
+            "All creators you follow are already muted. Use `/unmute` to restore notifications.", ephemeral=True
+        )
+        return
+
+    options = [
+        discord.SelectOption(
+            label=m.get("vanity") or "Unknown Creator",
+            value=m["campaign_id"],
+            description=m.get("url", "")[:100] or None
+        )
+        for m in available[:25]
+    ]
+
+    view = MuteSelectView(options)
+    await interaction.followup.send(
+        "Select a creator to mute. You will no longer receive notifications from them.",
+        view=view,
+        ephemeral=True
+    )
+
+
+class MuteSelectView(discord.ui.View):
+    def __init__(self, options: list[discord.SelectOption]):
+        super().__init__(timeout=60)
+        select = discord.ui.Select(
+            placeholder="Choose a creator to mute...",
+            options=options
+        )
+        select.callback = self.on_select
+        self.add_item(select)
+
+    async def on_select(self, interaction: discord.Interaction):
+        campaign_id = interaction.data["values"][0]
+        creator_name = next(
+            (opt.label for opt in self.children[0].options if opt.value == campaign_id),
+            "That creator"
+        )
+        await mute_creator(interaction.user.id, campaign_id)
+        self.stop()
+        await interaction.response.edit_message(
+            content=f"🔇 **{creator_name}** has been muted. You will no longer receive notifications from them.\n\nUse `/unmute` to restore notifications.",
+            view=None
+        )
+
+
+@bot.tree.command(name="unmute", description="Restore notifications from a muted creator")
+async def unmute(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
+    user = await get_user(interaction.user.id)
+    if not user:
+        await interaction.followup.send(
+            "❌ You need to connect your Patreon account first. Use `/connect`.", ephemeral=True
+        )
+        return
+
+    muted = await get_muted_creators(interaction.user.id)
+    if not muted:
+        await interaction.followup.send(
+            "You have no muted creators. Use `/mute` to mute notifications from a creator.", ephemeral=True
+        )
+        return
+
+    from bot.patreon import get_memberships
+    memberships = await get_memberships(user["access_token"])
+    name_lookup = {m["campaign_id"]: m.get("vanity") or "Unknown Creator" for m in (memberships or [])}
+
+    options = [
+        discord.SelectOption(
+            label=name_lookup.get(cid, f"Creator ({cid})"),
+            value=cid
+        )
+        for cid in muted[:25]
+    ]
+
+    view = UnmuteSelectView(options)
+    await interaction.followup.send(
+        "Select a creator to unmute. Notifications will resume at the next poll.",
+        view=view,
+        ephemeral=True
+    )
+
+
+class UnmuteSelectView(discord.ui.View):
+    def __init__(self, options: list[discord.SelectOption]):
+        super().__init__(timeout=60)
+        select = discord.ui.Select(
+            placeholder="Choose a creator to unmute...",
+            options=options
+        )
+        select.callback = self.on_select
+        self.add_item(select)
+
+    async def on_select(self, interaction: discord.Interaction):
+        campaign_id = interaction.data["values"][0]
+        creator_name = next(
+            (opt.label for opt in self.children[0].options if opt.value == campaign_id),
+            "That creator"
+        )
+        await unmute_creator(interaction.user.id, campaign_id)
+        self.stop()
+        await interaction.response.edit_message(
+            content=f"🔔 **{creator_name}** has been unmuted. Notifications will resume at the next poll.",
+            view=None
+        )
 
 
 @bot.tree.command(name="premium", description="Check your CreatorAlert Premium status")
@@ -418,7 +556,6 @@ async def servers(interaction: discord.Interaction):
 
     lines = [f"**{g.name}** — {g.member_count:,} members (ID: `{g.id}`)" for g in guilds]
 
-    # Chunk into fields to stay within Discord's 1024 char field limit
     chunks = []
     current = ""
     for line in lines:
@@ -464,6 +601,8 @@ async def help_cmd(interaction: discord.Interaction):
     embed.add_field(name="/premium", value="View or subscribe to CreatorAlert Premium", inline=False)
     if premium:
         embed.add_field(name="/customize", value="[Premium] Set a custom embed colour and notification message", inline=False)
+    embed.add_field(name="/mute", value="Mute notifications from a specific creator", inline=False)
+    embed.add_field(name="/unmute", value="Restore notifications from a muted creator", inline=False)
     embed.add_field(name="/invite", value="Get the link to invite CreatorAlert to your server", inline=False)
     embed.add_field(name="/about", value="About CreatorAlert", inline=False)
     embed.set_footer(text=f"Need help? Join the support server: {SUPPORT_SERVER}")
