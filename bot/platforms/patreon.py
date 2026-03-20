@@ -127,10 +127,14 @@ async def get_recent_posts(access_token: str, campaign_id: str, limit: int = 10)
     posts = []
     for item in data.get("data", []):
         attrs = item.get("attributes", {})
+        raw_url = attrs.get("url", "")
+        # Patreon sometimes returns relative URLs — normalise to absolute
+        if raw_url and not raw_url.startswith("http"):
+            raw_url = f"https://www.patreon.com{raw_url}"
         posts.append({
             "id": item["id"],
             "title": attrs.get("title") or "New Post",
-            "url": attrs.get("url", ""),
+            "url": raw_url,
             "published_at": attrs.get("published_at", ""),
         })
     return posts
