@@ -1,8 +1,22 @@
 import aiohttp
 import os
+import re
 
 GUMROAD_API_BASE = "https://api.gumroad.com/v2"
 GUMROAD_TOKEN_URL = "https://api.gumroad.com/oauth/token"
+
+EXCERPT_MAX_CHARS = 300
+
+
+def _strip_html(html: str) -> str:
+    """Strip HTML tags and collapse whitespace into a plain text excerpt."""
+    if not html:
+        return ""
+    text = re.sub(r"<[^>]+>", "", html)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > EXCERPT_MAX_CHARS:
+        text = text[:EXCERPT_MAX_CHARS].rsplit(" ", 1)[0] + "…"
+    return text
 
 
 async def refresh_access_token(refresh_token: str) -> dict | None:
@@ -24,7 +38,7 @@ async def get_memberships(access_token: str) -> list[dict] | None:
 async def get_products(access_token: str) -> list[dict] | None:
     """
     Fetch all published products for the authenticated Gumroad creator.
-    Returns a list of dicts with id, name, url, published_at.
+    Returns a list of dicts with id, name, url, published_at, excerpt.
     Returns None on 401.
     """
     headers = {"Authorization": f"Bearer {access_token}"}
@@ -54,7 +68,7 @@ async def get_products(access_token: str) -> list[dict] | None:
             "title": p.get("name") or "New Product",
             "url": p.get("short_url", ""),
             "published_at": p.get("published_at", ""),
-            "excerpt": p.get("description", "")[:300] if p.get("description") else "",
+            "excerpt": _strip_html(p.get("description", "")),
         })
     return products
 
