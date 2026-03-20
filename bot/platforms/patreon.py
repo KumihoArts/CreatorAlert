@@ -33,10 +33,11 @@ async def get_identity(access_token: str) -> dict:
             return await resp.json()
 
 
-async def get_own_campaign_id(access_token: str) -> str | None:
+async def get_own_campaign(access_token: str) -> dict | None:
     """
-    Fetch the campaign ID for the authenticated user's own Patreon campaign.
-    Returns the campaign ID string, or None if they don't have one.
+    Fetch the authenticated user's own Patreon campaign.
+    Returns a dict with campaign_id, vanity, url — or None if they
+    don't have a campaign.
     """
     headers = {"Authorization": f"Bearer {access_token}"}
     async with aiohttp.ClientSession() as session:
@@ -52,18 +53,20 @@ async def get_own_campaign_id(access_token: str) -> str | None:
                 return None
             data = await resp.json()
 
-    included = data.get("included", [])
-    for item in included:
+    for item in data.get("included", []):
         if item.get("type") == "campaign":
-            return item["id"]
+            return {
+                "campaign_id": item["id"],
+                "vanity": item.get("attributes", {}).get("vanity", ""),
+                "url": item.get("attributes", {}).get("url", ""),
+            }
     return None
 
 
 async def get_memberships(access_token: str) -> list[dict] | None:
     """
-    Fetch the campaigns the user is a member of (i.e. creators they support).
-    Returns a list of dicts with campaign_id, vanity, and url.
-    Returns None if the token is invalid/revoked (401).
+    Fetch the campaigns the user is a member of (creators they support).
+    Returns None on 401.
     """
     headers = {"Authorization": f"Bearer {access_token}"}
     async with aiohttp.ClientSession() as session:
@@ -98,9 +101,8 @@ async def get_memberships(access_token: str) -> list[dict] | None:
 
 async def get_recent_posts(access_token: str, campaign_id: str, limit: int = 10) -> list[dict] | None:
     """
-    Fetch recent posts from a campaign.
-    Returns a list of dicts with post id, title, url, and published_at.
-    Returns None if token is invalid/revoked (401).
+    Fetch recent posts from a campaign by campaign ID.
+    Returns None on 401.
     """
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {
@@ -125,10 +127,14 @@ async def get_recent_posts(access_token: str, campaign_id: str, limit: int = 10)
     posts = []
     for item in data.get("data", []):
         attrs = item.get("attributes", {})
+        raw_url = attrs.get("url", "")
+        # Patreon sometimes returns relative URLs — normalise to absolute
+        if raw_url and not raw_url.startswith("http"):
+            raw_url = f"https://www.patreon.com{raw_url}"
         posts.append({
             "id": item["id"],
             "title": attrs.get("title") or "New Post",
-            "url": attrs.get("url", ""),
+            "url": raw_url,
             "published_at": attrs.get("published_at", ""),
         })
     return posts
