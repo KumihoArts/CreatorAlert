@@ -56,6 +56,8 @@ async def init_db():
 
         # -----------------------------------------------------------------------
         # creator_channels
+        # Ensure the table exists with the correct schema, then fix the PK
+        # if it doesn't include platform yet.
         # -----------------------------------------------------------------------
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS creator_channels (
@@ -68,31 +70,40 @@ async def init_db():
             )
         """)
 
-        # Migrate old creator_channels schema (had patreon_user_id, no platform)
-        has_platform_col = await conn.fetchval("""
+        # Add platform column if missing (covers very old schema)
+        await conn.execute("""
+            ALTER TABLE creator_channels
+            ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'patreon'
+        """)
+
+        # Rename patreon_user_id -> platform_user_id if the old column still exists
+        has_old_col = await conn.fetchval("""
             SELECT EXISTS (
                 SELECT 1 FROM information_schema.columns
-                WHERE table_name = 'creator_channels' AND column_name = 'platform'
+                WHERE table_name = 'creator_channels' AND column_name = 'patreon_user_id'
             )
         """)
-        if not has_platform_col:
-            print("Migrating creator_channels schema...")
+        if has_old_col:
+            print("Renaming creator_channels.patreon_user_id -> platform_user_id...")
             await conn.execute("""
                 ALTER TABLE creator_channels
-                ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'patreon'
+                RENAME COLUMN patreon_user_id TO platform_user_id
             """)
-            has_old_col = await conn.fetchval("""
-                SELECT EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'creator_channels' AND column_name = 'patreon_user_id'
-                )
-            """)
-            if has_old_col:
-                await conn.execute("""
-                    ALTER TABLE creator_channels
-                    RENAME COLUMN patreon_user_id TO platform_user_id
-                """)
-            # Drop old PK and recreate with platform included
+
+        # Check if the PK already covers (guild_id, platform_user_id, platform)
+        pk_has_platform = await conn.fetchval("""
+            SELECT EXISTS (
+                SELECT 1
+                FROM pg_constraint c
+                JOIN pg_attribute a ON a.attrelid = c.conrelid
+                    AND a.attnum = ANY(c.conkey)
+                WHERE c.conrelid = 'creator_channels'::regclass
+                    AND c.contype = 'p'
+                    AND a.attname = 'platform'
+            )
+        """)
+        if not pk_has_platform:
+            print("Fixing creator_channels primary key to include platform...")
             await conn.execute("""
                 ALTER TABLE creator_channels
                 DROP CONSTRAINT IF EXISTS creator_channels_pkey
@@ -101,7 +112,7 @@ async def init_db():
                 ALTER TABLE creator_channels
                 ADD PRIMARY KEY (guild_id, platform_user_id, platform)
             """)
-            print("creator_channels migration complete.")
+            print("creator_channels PK fixed.")
 
         # -----------------------------------------------------------------------
         # seen_posts
@@ -154,18 +165,26 @@ async def init_db():
             )
         """)
 
-        muted_has_platform = await conn.fetchval("""
+        # Add platform column if missing
+        await conn.execute("""
+            ALTER TABLE muted_creators
+            ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'patreon'
+        """)
+
+        # Fix PK if it doesn't include platform
+        muted_pk_has_platform = await conn.fetchval("""
             SELECT EXISTS (
-                SELECT 1 FROM information_schema.columns
-                WHERE table_name = 'muted_creators' AND column_name = 'platform'
+                SELECT 1
+                FROM pg_constraint c
+                JOIN pg_attribute a ON a.attrelid = c.conrelid
+                    AND a.attnum = ANY(c.conkey)
+                WHERE c.conrelid = 'muted_creators'::regclass
+                    AND c.contype = 'p'
+                    AND a.attname = 'platform'
             )
         """)
-        if not muted_has_platform:
-            print("Migrating muted_creators schema...")
-            await conn.execute("""
-                ALTER TABLE muted_creators
-                ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'patreon'
-            """)
+        if not muted_pk_has_platform:
+            print("Fixing muted_creators primary key to include platform...")
             await conn.execute("""
                 ALTER TABLE muted_creators
                 DROP CONSTRAINT IF EXISTS muted_creators_pkey
@@ -174,7 +193,7 @@ async def init_db():
                 ALTER TABLE muted_creators
                 ADD PRIMARY KEY (discord_id, platform, campaign_id)
             """)
-            print("muted_creators migration complete.")
+            print("muted_creators PK fixed.")
 
     print("Database initialised.")
 
