@@ -64,6 +64,18 @@ async def _notify_revoked(bot: discord.Client, discord_id: int, platform: str):
         print(f"[scheduler] Could not notify {discord_id} of revoked {platform} token: {e}")
 
 
+async def _get_own_campaign_id(client, access_token: str, platform: str) -> str | None:
+    """
+    Get the campaign/channel ID for the user's own creator account.
+    Uses platform-specific logic since different platforms expose this differently.
+    """
+    if hasattr(client, "get_own_campaign"):
+        campaign = await client.get_own_campaign(access_token)
+        if campaign:
+            return campaign["campaign_id"]
+    return None
+
+
 async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
     accounts = await get_all_accounts()
     if not accounts:
@@ -100,7 +112,7 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
                     continue
                 access_token = new_token
             else:
-                print(f"[scheduler] {platform} token refresh failed for {discord_id}, removing and notifying.")
+                print(f"[scheduler] Token refresh failed for {discord_id}, removing and notifying.")
                 await delete_user(discord_id, platform)
                 await _notify_revoked(bot, discord_id, platform)
                 continue
@@ -114,17 +126,58 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
         else:
             colour = discord.Color(PLATFORM_COLOURS.get(platform, 0xF96854))
 
-        # Custom message prefix (premium only)
         custom_prefix = custom_message if (custom_message and user_is_premium) else None
+        platform_label_str = label(platform)
 
-        platform_label = label(platform)
+        # -----------------------------------------------------------
+        # CREATOR MODE — independent of memberships.
+        # Fetches the user's own campaign and posts to any server
+        # channels registered via /setup.
+        # -----------------------------------------------------------
+        creator_channels = await get_creator_channels_for_user(
+            account["platform_user_id"], platform
+        )
+        if creator_channels:
+            own_campaign_id = await _get_own_campaign_id(client, access_token, platform)
+            if own_campaign_id:
+                own_posts = await client.get_recent_posts(access_token, own_campaign_id)
+                if own_posts:
+                    for post in own_posts:
+                        post_id = f"{platform}:creator:{post['id']}"
+                        if await is_post_seen(discord_id, post_id):
+                            continue
+                        await mark_post_seen(discord_id, post_id)
 
+                        embed = discord.Embed(
+                            title=f"📬 New post!",
+                            description=f"**{post['title']}**",
+                            url=post["url"],
+                            color=colour
+                        )
+                        embed.set_footer(text=platform_label_str)
+
+                        for guild_id, ch_id, ping_role_id in creator_channels:
+                            try:
+                                channel = bot.get_channel(ch_id)
+                                if channel is None:
+                                    channel = await bot.fetch_channel(ch_id)
+                                ping = f"<@&{ping_role_id}>" if ping_role_id else None
+                                content = f"{custom_prefix + ' ' if custom_prefix else ''}{ping or ''}".strip() or None
+                                await channel.send(content=content, embed=embed)
+                            except Exception as e:
+                                print(f"[scheduler] Failed to post to creator channel {ch_id} in guild {guild_id}: {e}")
+            else:
+                print(f"[scheduler] No campaign found for creator {discord_id} on {platform}, skipping creator mode.")
+
+        # -----------------------------------------------------------
+        # SUBSCRIBER MODE — iterates memberships (creators the user
+        # supports) and sends a private DM for each new post.
+        # -----------------------------------------------------------
         for membership in memberships:
             campaign_id = membership["campaign_id"]
             creator_name = membership.get("vanity") or "A creator"
             creator_url = membership.get("url", "")
 
-            # Skip muted creators entirely
             if await is_muted(discord_id, platform, campaign_id):
                 continue
 
@@ -132,20 +185,19 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
             if posts is None:
                 continue
 
-            # Check if this user is the campaign owner — skip subscriber DM if so
+            # Skip DM if this user owns this campaign
             creator_account = await get_user_by_platform_id(campaign_id, platform)
             user_is_campaign_owner = (
                 creator_account is not None and
                 creator_account["discord_id"] == discord_id
             )
+            if user_is_campaign_owner:
+                continue
 
             for post in posts:
-                # Prefix post ID with platform to avoid cross-platform collisions
                 post_id = f"{platform}:{post['id']}"
-
                 if await is_post_seen(discord_id, post_id):
                     continue
-
                 await mark_post_seen(discord_id, post_id)
 
                 embed = discord.Embed(
@@ -154,31 +206,10 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
                     url=post["url"],
                     color=colour
                 )
-                embed.set_footer(text=f"{platform_label}{' · ' + creator_url if creator_url else ''}")
+                embed.set_footer(text=f"{platform_label_str}{' · ' + creator_url if creator_url else ''}")
 
-                # -----------------------------------------------------------
-                # SUBSCRIBER MODE — DM only, skip if user owns this campaign
-                # -----------------------------------------------------------
-                if not user_is_campaign_owner:
-                    try:
-                        discord_user = await bot.fetch_user(discord_id)
-                        await discord_user.send(content=custom_prefix, embed=embed)
-                    except Exception as e:
-                        print(f"[scheduler] Failed to DM subscriber {discord_id}: {e}")
-
-                # -----------------------------------------------------------
-                # CREATOR MODE — post to server channels set via /setup
-                # -----------------------------------------------------------
-                creator_channels = await get_creator_channels_for_user(
-                    account["platform_user_id"], platform
-                )
-                for guild_id, ch_id, ping_role_id in creator_channels:
-                    try:
-                        channel = bot.get_channel(ch_id)
-                        if channel is None:
-                            channel = await bot.fetch_channel(ch_id)
-                        ping = f"<@&{ping_role_id}>" if ping_role_id else None
-                        content = f"{custom_prefix + ' ' if custom_prefix else ''}{ping or ''}".strip() or None
-                        await channel.send(content=content, embed=embed)
-                    except Exception as e:
-                        print(f"[scheduler] Failed to post to creator channel {ch_id} in guild {guild_id}: {e}")
+                try:
+                    discord_user = await bot.fetch_user(discord_id)
+                    await discord_user.send(content=custom_prefix, embed=embed)
+                except Exception as e:
+                    print(f"[scheduler] Failed to DM subscriber {discord_id}: {e}")

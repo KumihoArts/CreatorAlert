@@ -6,10 +6,6 @@ PATREON_TOKEN_URL = "https://www.patreon.com/api/oauth2/token"
 
 
 async def refresh_access_token(refresh_token: str) -> dict | None:
-    """
-    Exchange a refresh token for a new access + refresh token pair.
-    Returns dict with access_token, refresh_token, expires_in or None on failure.
-    """
     async with aiohttp.ClientSession() as session:
         async with session.post(PATREON_TOKEN_URL, data={
             "grant_type": "refresh_token",
@@ -37,11 +33,40 @@ async def get_identity(access_token: str) -> dict:
             return await resp.json()
 
 
+async def get_own_campaign(access_token: str) -> dict | None:
+    """
+    Fetch the authenticated user's own Patreon campaign.
+    Returns a dict with campaign_id, vanity, url — or None if they
+    don't have a campaign.
+    """
+    headers = {"Authorization": f"Bearer {access_token}"}
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            f"{PATREON_API_BASE}/identity",
+            headers=headers,
+            params={
+                "include": "campaign",
+                "fields[campaign]": "vanity,url",
+            }
+        ) as resp:
+            if resp.status != 200:
+                return None
+            data = await resp.json()
+
+    for item in data.get("included", []):
+        if item.get("type") == "campaign":
+            return {
+                "campaign_id": item["id"],
+                "vanity": item.get("attributes", {}).get("vanity", ""),
+                "url": item.get("attributes", {}).get("url", ""),
+            }
+    return None
+
+
 async def get_memberships(access_token: str) -> list[dict] | None:
     """
-    Fetch the campaigns the user is a member of (i.e. creators they support).
-    Returns a list of dicts with campaign_id, vanity, and url.
-    Returns None if the token is invalid/revoked (401).
+    Fetch the campaigns the user is a member of (creators they support).
+    Returns None on 401.
     """
     headers = {"Authorization": f"Bearer {access_token}"}
     async with aiohttp.ClientSession() as session:
@@ -76,9 +101,8 @@ async def get_memberships(access_token: str) -> list[dict] | None:
 
 async def get_recent_posts(access_token: str, campaign_id: str, limit: int = 10) -> list[dict] | None:
     """
-    Fetch recent posts from a campaign.
-    Returns a list of dicts with post id, title, url, and published_at.
-    Returns None if token is invalid/revoked (401).
+    Fetch recent posts from a campaign by campaign ID.
+    Returns None on 401.
     """
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {
