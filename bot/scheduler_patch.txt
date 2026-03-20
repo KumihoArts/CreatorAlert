@@ -1,0 +1,13 @@
+async def _polling_loop(bot: discord.Client):
+    await bot.wait_until_ready()
+    print("Scheduler started.")
+    # Brief delay to ensure DB is fully ready before first poll
+    await asyncio.sleep(5)
+    cycle = 0
+    while not bot.is_closed():
+        try:
+            await _check_for_new_posts(bot, premium_only=(cycle % 2 == 1))
+        except Exception as e:
+            print(f"[scheduler] Polling error: {e}")
+        cycle += 1
+        await asyncio.sleep(PREMIUM_POLL_INTERVAL)

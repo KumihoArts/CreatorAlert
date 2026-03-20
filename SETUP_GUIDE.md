@@ -9,21 +9,23 @@ This guide walks you through setting up CreatorAlert as a supporter or as a crea
 
 ## For supporters — getting personal notifications
 
-Supporters get private DM notifications whenever a creator they back on Patreon publishes something new.
+Supporters get private DM notifications whenever a creator they back on Patreon or SubscribeStar publishes something new.
 
 ### Step 1 — Invite the bot or find it in a server
 
 If you're already in a server where CreatorAlert is present, you can use it straight away. If not, use the invite link above to add it to your own server, or ask a creator to add it to theirs.
 
-### Step 2 — Connect your Patreon account
+### Step 2 — Connect your account
 
-Run `/connect` in any server where the bot is present. You'll get a private message with a link — click it, and you'll be taken to Patreon to authorise the connection. Once you approve, your account is linked.
+Run `/connect` in any server where the bot is present. You'll see buttons for **Patreon** and **SubscribeStar** — choose the platform you want to connect. Click the link that appears, authorise the connection on that platform's website, and your account is linked.
+
+You can connect both platforms independently. Run `/connect` again to add a second platform.
 
 ### Step 3 — You're done
 
-That's it. CreatorAlert will check for new posts from every creator you support on Patreon and send you a private DM when something is published. You don't need to do anything else.
+That's it. CreatorAlert will check for new posts from every creator you support and send you a private DM when something is published. You don't need to do anything else.
 
-Notifications arrive as a DM from the bot and look like this:
+Notifications look like this:
 
 > **📬 New post from [Creator Name]**
 > **Post title here**
@@ -32,66 +34,65 @@ Notifications arrive as a DM from the bot and look like this:
 ### Checking your status
 
 Run `/status` at any time to see:
-- Which Patreon account is connected
-- When you connected
+- Which accounts are connected and when
 - Whether you have Premium
 - How many creators you have muted, if any
+- Your announcement channel and ping role (if you're a creator in this server)
 
 ### Muting a creator
 
-If you want to stop receiving notifications from a specific creator without disconnecting your account, use `/mute`. You'll see a dropdown menu of all the creators you currently support — select one to mute them. You can mute as many as you like.
+Use `/mute` to stop receiving notifications from a specific creator without disconnecting your account. You'll see a dropdown of all the creators you currently support — select one to mute them.
 
-While a creator is muted, their posts are completely skipped — no DM is sent, and no posts are marked as seen. This means if you unmute them later, you won't have missed anything; you'll still be notified about posts you didn't see while they were muted.
+While a creator is muted, their posts are completely skipped. If you unmute them later, you won't have missed anything — you'll still be notified about posts you didn't see while they were muted.
 
 ### Unmuting a creator
 
-Run `/unmute` to restore notifications from a muted creator. You'll see a dropdown of your currently muted creators — select one to unmute them. Notifications will resume at the next polling cycle.
+Run `/unmute` to restore notifications from a muted creator. Notifications resume at the next polling cycle.
 
 ### Disconnecting
 
-Run `/disconnect` if you want to unlink your account and stop all notifications. You'll be asked to confirm before anything is deleted. This also clears all your muted creators.
+Run `/disconnect` to unlink an account and stop all notifications from that platform. If you have multiple platforms connected, you'll be asked which one to disconnect. This also clears your muted creators for that platform.
 
 ---
 
 ## For creators — announcing posts to your Discord server
 
-Creators can have CreatorAlert automatically announce new Patreon posts to a channel in their Discord server. This requires the **Manage Server** permission.
+Creators can have CreatorAlert automatically announce new posts to a channel in their Discord server. This requires the **Manage Server** permission.
 
 ### Step 1 — Invite the bot to your server
 
 Use the invite link at the top of this guide. Make sure to keep the default permissions — the bot needs to be able to send messages and embed links.
 
-### Step 2 — Connect your Patreon account
+### Step 2 — Connect your account
 
-Run `/connect` and authorise CreatorAlert to access your Patreon account, the same as subscribers do.
+Run `/connect` and choose **Patreon** or **SubscribeStar** (or both). Authorise CreatorAlert to access your account, the same as subscribers do.
 
 ### Step 3 — Set up your announcement channel
 
-Run `/setup #channel-name`, replacing `#channel-name` with the channel where you want new posts to be announced. For example:
+Run `/setup #channel-name`, replacing `#channel-name` with the channel where you want new posts announced. If you have both platforms connected, add the `platform` option to specify which one:
 
 ```
-/setup #patreon-updates
+/setup #patreon-updates platform:Patreon
+/setup #subscribestar-updates platform:SubscribeStar
 ```
 
-The bot will confirm the channel is set. From this point on, whenever you publish a new post on Patreon, CreatorAlert will automatically post an announcement in that channel.
+The bot will confirm the channel is set. From this point on, whenever you publish a new post, CreatorAlert will automatically post an announcement in that channel.
 
 > **Note:** Make sure the bot has permission to send messages and embed links in the channel you choose. If it doesn't, `/setup` will tell you.
 
 ### Step 4 (optional) — Set a ping role
 
-If you want a specific role to be pinged with each announcement, run `/pingrole @role-name`. For example, if you have a role called `@Patreon Updates`:
+Run `/pingrole @role-name` to ping a role with each announcement. Use the `platform` option if you have multiple platforms set up:
 
 ```
-/pingrole @Patreon Updates
+/pingrole @Patreon Updates platform:Patreon
 ```
 
-Every announcement will then ping that role. To remove the ping role later, run `/pingrole` without specifying a role.
+To remove the ping role, run `/pingrole` without specifying a role.
 
-> **Note:** `@everyone` and `@here` cannot be used as ping roles. The role must also be below the bot's own role in the server's role hierarchy.
+> **Note:** `@everyone` and `@here` cannot be used as ping roles. The role must also be below the bot's own role in the server hierarchy.
 
 ### What an announcement looks like
-
-When you publish a new post on Patreon, the bot will post something like this in your designated channel:
 
 > @Patreon Updates
 > **📬 New post from [Your Creator Name]**
@@ -102,7 +103,7 @@ When you publish a new post on Patreon, the bot will post something like this in
 
 ## Both modes together
 
-If you're a creator and you've set up an announcement channel, your fans can still use the bot independently to get their own private DM notifications — for your content or any other creator they support. They just need to run `/connect` themselves. The two modes don't interfere with each other.
+If you're a creator and you've set up an announcement channel, your fans can still use the bot independently to get their own private DM notifications. They just need to run `/connect` themselves. The two modes don't interfere with each other.
 
 ---
 
@@ -112,11 +113,11 @@ CreatorAlert Premium is available via Discord subscription. Use `/premium` in Di
 
 Premium members get:
 
-- **Faster polling** — posts are checked every 3 minutes instead of 10, so you hear about new posts sooner
+- **Faster polling** — posts are checked every 3 minutes instead of 10
 - **Custom embed colour** — personalise the colour of your DM notification embeds
-- **Custom notification message** — add your own text that gets prepended to every notification
+- **Custom notification message** — add your own text prepended to every notification
 
-To customise your colour and message after subscribing, use `/customize`. For example:
+To customise your colour and message after subscribing, use `/customize`:
 
 ```
 /customize colour:#ff6600 message:New post just dropped!
@@ -128,9 +129,9 @@ To customise your colour and message after subscribing, use `/customize`. For ex
 
 | Command | Who it's for | What it does |
 |---|---|---|
-| `/connect` | Everyone | Links your Patreon account to CreatorAlert |
-| `/disconnect` | Everyone | Unlinks your account and stops all notifications |
-| `/status` | Everyone | Shows your connection status and settings |
+| `/connect` | Everyone | Links a Patreon or SubscribeStar account |
+| `/disconnect` | Everyone | Unlinks an account and stops notifications from that platform |
+| `/status` | Everyone | Shows connection status, settings, and creator channel info |
 | `/setup` | Creators (Manage Server) | Sets the channel for automatic post announcements |
 | `/pingrole` | Creators (Manage Server) | Sets a role to ping with each announcement |
 | `/premium` | Everyone | Shows Premium status and subscribe button |
@@ -145,7 +146,7 @@ To customise your colour and message after subscribing, use `/customize`. For ex
 
 ## Troubleshooting
 
-**I ran `/connect` but didn't get a DM.**
+**I ran `/connect` but didn't get a link / nothing happened.**
 Make sure your DMs are open for the server where you ran the command. In Discord, go to the server settings and enable "Allow direct messages from server members."
 
 **I'm not receiving notifications from a creator I support.**
@@ -157,7 +158,7 @@ Run `/status` to confirm your account is connected. If it is and you've been wai
 **The bot says it can't send messages in my channel.**
 Go to your channel settings → Permissions and make sure CreatorAlert has `Send Messages` and `Embed Links` enabled.
 
-**I disconnected from Patreon on the Patreon website.**
+**I disconnected from Patreon or SubscribeStar on their website.**
 CreatorAlert will detect this automatically on the next poll and send you a DM letting you know. Just run `/connect` again to re-link.
 
 ---

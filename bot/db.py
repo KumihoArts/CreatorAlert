@@ -56,8 +56,6 @@ async def init_db():
 
         # -----------------------------------------------------------------------
         # creator_channels
-        # Ensure the table exists with the correct schema, then fix the PK
-        # if it doesn't include platform yet.
         # -----------------------------------------------------------------------
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS creator_channels (
@@ -70,13 +68,11 @@ async def init_db():
             )
         """)
 
-        # Add platform column if missing (covers very old schema)
         await conn.execute("""
             ALTER TABLE creator_channels
             ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'patreon'
         """)
 
-        # Rename patreon_user_id -> platform_user_id if the old column still exists
         has_old_col = await conn.fetchval("""
             SELECT EXISTS (
                 SELECT 1 FROM information_schema.columns
@@ -90,7 +86,6 @@ async def init_db():
                 RENAME COLUMN patreon_user_id TO platform_user_id
             """)
 
-        # Check if the PK already covers (guild_id, platform_user_id, platform)
         pk_has_platform = await conn.fetchval("""
             SELECT EXISTS (
                 SELECT 1
@@ -165,13 +160,11 @@ async def init_db():
             )
         """)
 
-        # Add platform column if missing
         await conn.execute("""
             ALTER TABLE muted_creators
             ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'patreon'
         """)
 
-        # Fix PK if it doesn't include platform
         muted_pk_has_platform = await conn.fetchval("""
             SELECT EXISTS (
                 SELECT 1
@@ -196,6 +189,19 @@ async def init_db():
             print("muted_creators PK fixed.")
 
     print("Database initialised.")
+
+
+async def cleanup_seen_posts():
+    """Delete seen_posts rows older than 30 days to keep the table lean."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute("""
+            DELETE FROM seen_posts
+            WHERE seen_at < NOW() - INTERVAL '30 days'
+        """)
+        count = int(result.split()[-1])
+        if count:
+            print(f"[db] Cleaned up {count} old seen_posts rows.")
 
 
 # ---------------------------------------------------------------------------
@@ -397,6 +403,18 @@ async def get_creator_channels_for_user(platform_user_id: str, platform: str) ->
             WHERE platform_user_id = $1 AND platform = $2
         """, platform_user_id, platform)
         return [(r["guild_id"], r["channel_id"], r["ping_role_id"]) for r in rows]
+
+
+async def get_creator_channels_for_guild(guild_id: int, platform_user_id: str, platform: str) -> dict | None:
+    """Get creator channel info for a specific guild — used by /status."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT channel_id, ping_role_id
+            FROM creator_channels
+            WHERE guild_id = $1 AND platform_user_id = $2 AND platform = $3
+        """, guild_id, platform_user_id, platform)
+        return dict(row) if row else None
 
 
 async def set_creator_ping_role(guild_id: int, platform_user_id: str, platform: str, role_id: int | None):

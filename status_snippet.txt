@@ -1,0 +1,49 @@
+@bot.tree.command(name="status", description="Check your connected accounts and notification settings")
+async def status(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    premium = _check_premium(interaction)
+    connected = await get_all_user_platforms(interaction.user.id)
+
+    if not connected:
+        embed = discord.Embed(
+            title="Connection Status",
+            description="❌ No accounts connected.\n\nUse `/connect` to link a Patreon or SubscribeStar account.",
+            color=discord.Color.red()
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title="Connection Status",
+        description=f"✅ {len(connected)} account{'s' if len(connected) > 1 else ''} connected.",
+        color=discord.Color.green()
+    )
+
+    for platform in connected:
+        account = await get_user(interaction.user.id, platform)
+        if not account:
+            continue
+        connected_at = account["connected_at"].strftime("%Y-%m-%d %H:%M UTC") if account.get("connected_at") else "Unknown"
+        muted = await get_muted_creators(interaction.user.id, platform)
+        value = f"ID: `{account['platform_user_id']}`\nConnected: {connected_at}"
+        if muted:
+            value += f"\nMuted creators: {len(muted)}"
+        if premium and account.get("custom_message"):
+            value += f"\nCustom message: *{account['custom_message']}*"
+        if premium and account.get("embed_colour"):
+            value += f"\nEmbed colour: `{account['embed_colour']}`"
+
+        # Show creator channel if set up in this server
+        if interaction.guild:
+            creator_ch = await get_creator_channels_for_guild(
+                interaction.guild.id, account["platform_user_id"], platform
+            )
+            if creator_ch:
+                value += f"\nAnnouncement channel: <#{creator_ch['channel_id']}>"
+                if creator_ch.get("ping_role_id"):
+                    value += f"\nPing role: <@&{creator_ch['ping_role_id']}>"
+
+        embed.add_field(name=platform_label(platform), value=value, inline=False)
+
+    embed.add_field(name="Premium", value="✅ Active" if premium else "❌ Not subscribed", inline=False)
+    await interaction.followup.send(embed=embed, ephemeral=True)

@@ -4,22 +4,26 @@ import discord
 from bot.db import (
     get_all_accounts, is_post_seen, mark_post_seen, update_tokens,
     delete_user, get_creator_channels_for_user, get_user_by_platform_id,
-    is_muted
+    is_muted, cleanup_seen_posts
 )
 from bot.platforms import get_platform, label, PLATFORM_COLOURS
 from bot.premium import PREMIUM_BYPASS_IDS
 
-FREE_POLL_INTERVAL = 600    # 10 minutes
-PREMIUM_POLL_INTERVAL = 180 # 3 minutes
+FREE_POLL_INTERVAL = 600     # 10 minutes
+PREMIUM_POLL_INTERVAL = 180  # 3 minutes
+CLEANUP_INTERVAL = 86400     # 24 hours
 
 
 def start_scheduler(bot: discord.Client):
     bot.loop.create_task(_polling_loop(bot))
+    bot.loop.create_task(_cleanup_loop())
 
 
 async def _polling_loop(bot: discord.Client):
     await bot.wait_until_ready()
     print("Scheduler started.")
+    # Brief delay to ensure DB is fully ready before first poll
+    await asyncio.sleep(5)
     cycle = 0
     while not bot.is_closed():
         try:
@@ -28,6 +32,18 @@ async def _polling_loop(bot: discord.Client):
             print(f"[scheduler] Polling error: {e}")
         cycle += 1
         await asyncio.sleep(PREMIUM_POLL_INTERVAL)
+
+
+async def _cleanup_loop():
+    """Runs once every 24 hours to prune old seen_posts rows."""
+    # Offset cleanup so it doesn't fire immediately on startup
+    await asyncio.sleep(3600)
+    while True:
+        try:
+            await cleanup_seen_posts()
+        except Exception as e:
+            print(f"[scheduler] Cleanup error: {e}")
+        await asyncio.sleep(CLEANUP_INTERVAL)
 
 
 async def _try_refresh_token(account: dict) -> str | None:
@@ -64,15 +80,10 @@ async def _notify_revoked(bot: discord.Client, discord_id: int, platform: str):
         print(f"[scheduler] Could not notify {discord_id} of revoked {platform} token: {e}")
 
 
-async def _get_own_campaign_id(client, access_token: str, platform: str) -> str | None:
-    """
-    Get the campaign/channel ID for the user's own creator account.
-    Uses platform-specific logic since different platforms expose this differently.
-    """
+async def _get_own_campaign(client, access_token: str) -> dict | None:
+    """Returns the user's own campaign dict (campaign_id, vanity, url) if available."""
     if hasattr(client, "get_own_campaign"):
-        campaign = await client.get_own_campaign(access_token)
-        if campaign:
-            return campaign["campaign_id"]
+        return await client.get_own_campaign(access_token)
     return None
 
 
@@ -131,15 +142,15 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
 
         # -----------------------------------------------------------
         # CREATOR MODE — independent of memberships.
-        # Fetches the user's own campaign and posts to any server
-        # channels registered via /setup.
         # -----------------------------------------------------------
         creator_channels = await get_creator_channels_for_user(
             account["platform_user_id"], platform
         )
         if creator_channels:
-            own_campaign_id = await _get_own_campaign_id(client, access_token, platform)
-            if own_campaign_id:
+            own_campaign = await _get_own_campaign(client, access_token)
+            if own_campaign:
+                own_campaign_id = own_campaign["campaign_id"]
+                creator_name = own_campaign.get("vanity") or "Your account"
                 own_posts = await client.get_recent_posts(access_token, own_campaign_id)
                 if own_posts:
                     for post in own_posts:
@@ -149,7 +160,7 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
                         await mark_post_seen(discord_id, post_id)
 
                         embed = discord.Embed(
-                            title=f"📬 New post!",
+                            title=f"📬 New post from {creator_name}",
                             description=f"**{post['title']}**",
                             url=post["url"],
                             color=colour
@@ -170,8 +181,7 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
                 print(f"[scheduler] No campaign found for creator {discord_id} on {platform}, skipping creator mode.")
 
         # -----------------------------------------------------------
-        # SUBSCRIBER MODE — iterates memberships (creators the user
-        # supports) and sends a private DM for each new post.
+        # SUBSCRIBER MODE — DM for each new post from supported creators.
         # -----------------------------------------------------------
         for membership in memberships:
             campaign_id = membership["campaign_id"]
@@ -185,7 +195,6 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
             if posts is None:
                 continue
 
-            # Skip DM if this user owns this campaign
             creator_account = await get_user_by_platform_id(campaign_id, platform)
             user_is_campaign_owner = (
                 creator_account is not None and
