@@ -6,6 +6,10 @@ PATREON_TOKEN_URL = "https://www.patreon.com/api/oauth2/token"
 
 
 async def refresh_access_token(refresh_token: str) -> dict | None:
+    """
+    Exchange a refresh token for a new access + refresh token pair.
+    Returns dict with access_token, refresh_token, expires_in or None on failure.
+    """
     async with aiohttp.ClientSession() as session:
         async with session.post(PATREON_TOKEN_URL, data={
             "grant_type": "refresh_token",
@@ -31,32 +35,6 @@ async def get_identity(access_token: str) -> dict:
         ) as resp:
             resp.raise_for_status()
             return await resp.json()
-
-
-async def get_own_campaign_id(access_token: str) -> str | None:
-    """
-    Fetch the campaign ID for the authenticated user's own Patreon campaign.
-    Returns the campaign ID string, or None if they don't have one.
-    """
-    headers = {"Authorization": f"Bearer {access_token}"}
-    async with aiohttp.ClientSession() as session:
-        async with session.get(
-            f"{PATREON_API_BASE}/identity",
-            headers=headers,
-            params={
-                "include": "campaign",
-                "fields[campaign]": "vanity,url",
-            }
-        ) as resp:
-            if resp.status != 200:
-                return None
-            data = await resp.json()
-
-    included = data.get("included", [])
-    for item in included:
-        if item.get("type") == "campaign":
-            return item["id"]
-    return None
 
 
 async def get_memberships(access_token: str) -> list[dict] | None:
