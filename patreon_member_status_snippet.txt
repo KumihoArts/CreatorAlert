@@ -1,0 +1,17 @@
+    # Walk member objects to get their campaign relationships
+    memberships = []
+    seen = set()
+    for item in included:
+        if item.get("type") == "member":
+            attrs = item.get("attributes", {})
+            campaign_rel = item.get("relationships", {}).get("campaign", {}).get("data", {})
+            campaign_id = campaign_rel.get("id")
+            if campaign_id and campaign_id not in seen and campaign_id in campaigns:
+                seen.add(campaign_id)
+                entry = campaigns[campaign_id].copy()
+                # Pass through membership status so scheduler can filter if needed
+                entry["is_follower"] = attrs.get("is_follower", False)
+                entry["patron_status"] = attrs.get("patron_status")  # active_patron, declined_patron, former_patron, or None
+                memberships.append(entry)
+
+    return memberships

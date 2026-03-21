@@ -22,7 +22,6 @@ def start_scheduler(bot: discord.Client):
 async def _polling_loop(bot: discord.Client):
     await bot.wait_until_ready()
     print("Scheduler started.")
-    # Brief delay to ensure DB is fully ready before first poll
     await asyncio.sleep(5)
     cycle = 0
     while not bot.is_closed():
@@ -35,7 +34,6 @@ async def _polling_loop(bot: discord.Client):
 
 
 async def _cleanup_loop():
-    """Runs once every 24 hours to prune old seen_posts rows."""
     await asyncio.sleep(3600)
     while True:
         try:
@@ -80,23 +78,26 @@ async def _notify_revoked(bot: discord.Client, discord_id: int, platform: str):
 
 
 async def _get_own_campaign(client, access_token: str) -> dict | None:
-    """Returns the user's own campaign dict (campaign_id, vanity, url) if available."""
     if hasattr(client, "get_own_campaign"):
         return await client.get_own_campaign(access_token)
     return None
 
 
 def _build_embed_description(post: dict) -> str:
-    """
-    Build the embed description from a post dict.
-    Always includes the bold title. Appends a plain text excerpt on a new
-    line if the post is public and has content.
-    """
     desc = f"**{post['title']}**"
     excerpt = post.get("excerpt", "")
     if excerpt:
         desc += f"\n\n{excerpt}"
     return desc
+
+
+def _is_free_membership(membership: dict) -> bool:
+    """Returns True if this is a free/follower membership (not a paid patron)."""
+    return (
+        membership.get("is_follower", False) or
+        membership.get("patron_status") is None or
+        membership.get("patron_status") == "former_patron"
+    )
 
 
 async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
@@ -108,6 +109,7 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
         discord_id = account["discord_id"]
         platform = account["platform"]
         user_is_premium = discord_id in PREMIUM_BYPASS_IDS
+        notify_free = account.get("notify_free_members", True)
 
         if premium_only and not user_is_premium:
             continue
@@ -140,7 +142,6 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
                 await _notify_revoked(bot, discord_id, platform)
                 continue
 
-        # Resolve embed colour (premium only)
         if embed_colour and user_is_premium:
             try:
                 colour = discord.Color(int(embed_colour.strip("#"), 16))
@@ -153,7 +154,7 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
         platform_label_str = label(platform)
 
         # -----------------------------------------------------------
-        # CREATOR MODE — independent of memberships.
+        # CREATOR MODE
         # -----------------------------------------------------------
         creator_channels = await get_creator_channels_for_user(
             account["platform_user_id"], platform
@@ -193,12 +194,16 @@ async def _check_for_new_posts(bot: discord.Client, premium_only: bool = False):
                 print(f"[scheduler] No campaign found for creator {discord_id} on {platform}, skipping creator mode.")
 
         # -----------------------------------------------------------
-        # SUBSCRIBER MODE — DM for each new post from supported creators.
+        # SUBSCRIBER MODE
         # -----------------------------------------------------------
         for membership in memberships:
             campaign_id = membership["campaign_id"]
             creator_name = membership.get("vanity") or "A creator"
             creator_url = membership.get("url", "")
+
+            # Skip free/follower memberships if user opted out
+            if not notify_free and _is_free_membership(membership):
+                continue
 
             if await is_muted(discord_id, platform, campaign_id):
                 continue

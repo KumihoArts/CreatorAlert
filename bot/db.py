@@ -19,17 +19,24 @@ async def init_db():
         # -----------------------------------------------------------------------
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS connected_accounts (
-                discord_id       BIGINT NOT NULL,
-                platform         TEXT NOT NULL DEFAULT 'patreon',
-                platform_user_id TEXT NOT NULL,
-                access_token     TEXT NOT NULL,
-                refresh_token    TEXT NOT NULL,
-                token_expires    TIMESTAMPTZ,
-                embed_colour     TEXT,
-                custom_message   TEXT,
-                connected_at     TIMESTAMPTZ DEFAULT NOW(),
+                discord_id            BIGINT NOT NULL,
+                platform              TEXT NOT NULL DEFAULT 'patreon',
+                platform_user_id      TEXT NOT NULL,
+                access_token          TEXT NOT NULL,
+                refresh_token         TEXT NOT NULL,
+                token_expires         TIMESTAMPTZ,
+                embed_colour          TEXT,
+                custom_message        TEXT,
+                notify_free_members   BOOLEAN NOT NULL DEFAULT TRUE,
+                connected_at          TIMESTAMPTZ DEFAULT NOW(),
                 PRIMARY KEY (discord_id, platform)
             )
+        """)
+
+        # Add notify_free_members column if missing (existing installs)
+        await conn.execute("""
+            ALTER TABLE connected_accounts
+            ADD COLUMN IF NOT EXISTS notify_free_members BOOLEAN NOT NULL DEFAULT TRUE
         """)
 
         has_old_table = await conn.fetchval("""
@@ -279,6 +286,17 @@ async def set_premium_style(discord_id: int, platform: str, embed_colour: str | 
             SET embed_colour = $3, custom_message = $4
             WHERE discord_id = $1 AND platform = $2
         """, discord_id, platform, embed_colour, custom_message)
+
+
+async def set_notify_free_members(discord_id: int, platform: str, enabled: bool):
+    """Set whether the user wants notifications from free/follower tier memberships."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE connected_accounts
+            SET notify_free_members = $3
+            WHERE discord_id = $1 AND platform = $2
+        """, discord_id, platform, enabled)
 
 
 async def get_all_accounts() -> list[dict]:

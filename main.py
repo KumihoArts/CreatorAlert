@@ -9,8 +9,8 @@ import os
 from bot.db import (
     init_db, get_user, get_all_user_platforms, delete_user, set_premium_style,
     set_creator_channel, get_creator_channel, get_creator_channels_for_guild,
-    set_creator_ping_role, mute_creator, unmute_creator, get_muted_creators,
-    get_muted_creators_with_platform
+    set_creator_ping_role, set_notify_free_members,
+    mute_creator, unmute_creator, get_muted_creators, get_muted_creators_with_platform
 )
 from bot.platforms import PLATFORM_LABELS, PLATFORM_COLOURS, label as platform_label
 from bot.premium import is_premium, PREMIUM_SKU_ID
@@ -22,7 +22,7 @@ logging.getLogger("discord.ext.commands.bot").setLevel(logging.ERROR)
 
 AUTH_BASE_URL = os.getenv("AUTH_BASE_URL", "https://auth-production-4018.up.railway.app")
 BOT_OWNER_ID = 244962442008854540
-BOT_VERSION = "1.5.0"
+BOT_VERSION = "1.5.1"
 GITHUB_URL = "https://github.com/KumihoArts/CreatorAlert"
 SUPPORT_SERVER = "https://discord.gg/KVcu3HvHB3"
 DBL_TOKEN = os.getenv("DBL_TOKEN")
@@ -32,6 +32,7 @@ DBL_COMMANDS = [
     {"name": "connect", "description": "Connect a Patreon, SubscribeStar, or Gumroad account", "type": 1},
     {"name": "disconnect", "description": "Disconnect a connected account", "type": 1},
     {"name": "status", "description": "Check your connected accounts and notification settings", "type": 1},
+    {"name": "settings", "description": "Adjust notification preferences for a connected platform", "type": 1},
     {"name": "setup", "description": "[Creator] Set a channel in your server for automatic post announcements", "type": 1},
     {"name": "pingrole", "description": "[Creator] Set a role to ping when new posts are announced in your server", "type": 1},
     {"name": "premium", "description": "View or subscribe to CreatorAlert Premium", "type": 1},
@@ -106,7 +107,6 @@ class ConnectPlatformView(discord.ui.View):
             color=discord.Color(PLATFORM_COLOURS["patreon"])
         )
         await interaction.response.edit_message(content=None, embed=embed, view=None)
-
 
     @discord.ui.button(label="SubscribeStar", style=discord.ButtonStyle.primary, emoji="⭐")
     async def connect_subscribestar(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -240,6 +240,8 @@ async def status(interaction: discord.Interaction):
         value = f"ID: `{account['platform_user_id']}`\nConnected: {connected_at}"
         if muted:
             value += f"\nMuted creators: {len(muted)}"
+        notify_free = account.get("notify_free_members", True)
+        value += f"\nFree member notifications: {'✅ On' if notify_free else '❌ Off'}"
         if premium and account.get("custom_message"):
             value += f"\nCustom message: *{account['custom_message']}*"
         if premium and account.get("embed_colour"):
@@ -256,6 +258,84 @@ async def status(interaction: discord.Interaction):
 
     embed.add_field(name="Premium", value="✅ Active" if premium else "❌ Not subscribed", inline=False)
     await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+# ---------------------------------------------------------------------------
+# /settings
+# ---------------------------------------------------------------------------
+
+@bot.tree.command(name="settings", description="Adjust notification preferences for a connected platform")
+@app_commands.describe(platform="Which platform to adjust settings for")
+@app_commands.choices(platform=[
+    app_commands.Choice(name="Patreon", value="patreon"),
+    app_commands.Choice(name="SubscribeStar", value="subscribestar"),
+    app_commands.Choice(name="Gumroad", value="gumroad"),
+])
+async def settings(interaction: discord.Interaction, platform: app_commands.Choice[str] = None):
+    await interaction.response.defer(ephemeral=True)
+
+    if platform is None:
+        connected = await get_all_user_platforms(interaction.user.id)
+        if not connected:
+            await interaction.followup.send("❌ You need to connect an account first. Use `/connect`.", ephemeral=True)
+            return
+        if len(connected) > 1:
+            await interaction.followup.send("❌ You have multiple platforms connected. Please specify the `platform` option.", ephemeral=True)
+            return
+        platform_str = connected[0]
+    else:
+        platform_str = platform.value
+
+    account = await get_user(interaction.user.id, platform_str)
+    if not account:
+        plabel = platform_label(platform_str)
+        await interaction.followup.send(f"❌ You don't have a {plabel} account connected. Use `/connect`.", ephemeral=True)
+        return
+
+    notify_free = account.get("notify_free_members", True)
+    plabel = platform_label(platform_str)
+
+    embed = discord.Embed(
+        title=f"Settings — {plabel}",
+        description="Toggle notification preferences below.",
+        color=discord.Color(PLATFORM_COLOURS.get(platform_str, 0x5865F2))
+    )
+    embed.add_field(
+        name="Free member notifications",
+        value=(
+            "When **on**, you'll receive notifications from creators you follow for free (free tier / follower).\n"
+            "When **off**, only paid memberships trigger notifications.\n\n"
+            f"Currently: {'✅ On' if notify_free else '❌ Off'}"
+        ),
+        inline=False
+    )
+
+    view = SettingsView(platform_str, notify_free)
+    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+
+class SettingsView(discord.ui.View):
+    def __init__(self, platform: str, notify_free: bool):
+        super().__init__(timeout=60)
+        self.platform = platform
+        self.notify_free = notify_free
+
+        label = "Turn off free notifications" if notify_free else "Turn on free notifications"
+        style = discord.ButtonStyle.danger if notify_free else discord.ButtonStyle.success
+        btn = discord.ui.Button(label=label, style=style)
+        btn.callback = self.toggle
+        self.add_item(btn)
+
+    async def toggle(self, interaction: discord.Interaction):
+        new_value = not self.notify_free
+        await set_notify_free_members(interaction.user.id, self.platform, new_value)
+        self.stop()
+        plabel = platform_label(self.platform)
+        if new_value:
+            msg = f"✅ Free member notifications **enabled** for {plabel}. You'll now receive notifications from creators you follow for free."
+        else:
+            msg = f"❌ Free member notifications **disabled** for {plabel}. You'll only receive notifications from creators you're paying to support."
+        await interaction.response.edit_message(content=msg, embed=None, view=None)
 
 
 # ---------------------------------------------------------------------------
@@ -748,6 +828,7 @@ async def help_cmd(interaction: discord.Interaction):
     embed.add_field(name="/connect", value="Link a Patreon, SubscribeStar, or Gumroad account", inline=False)
     embed.add_field(name="/disconnect", value="Unlink a connected account", inline=False)
     embed.add_field(name="/status", value="Check your connected accounts and settings", inline=False)
+    embed.add_field(name="/settings", value="Toggle notification preferences (e.g. free member notifications)", inline=False)
     embed.add_field(name="/setup", value="[Creator] Designate a channel for post announcements (requires Manage Server)", inline=False)
     embed.add_field(name="/pingrole", value="[Creator] Set a role to ping with each announcement (requires Manage Server)", inline=False)
     embed.add_field(name="/premium", value="View or subscribe to CreatorAlert Premium", inline=False)
