@@ -10,8 +10,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app)
-app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev")
+CORS(app, origins=[
+    "https://auth-production-4018.up.railway.app",
+    "https://auth-staging-e010.up.railway.app",
+])
+
+_secret_key = os.getenv("FLASK_SECRET_KEY")
+if not _secret_key:
+    raise RuntimeError("FLASK_SECRET_KEY environment variable is not set.")
+app.secret_key = _secret_key
 
 # ---------------------------------------------------------------------------
 # Patreon config
